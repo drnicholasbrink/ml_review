@@ -1,0 +1,31 @@
+# OS/macOS
+.DS_Store
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environments
+.venv/
+venv/
+env/
+.env
+
+# Editors/IDE
+.vscode/
+.idea/
+
+# Logs and outputs
+*.log
+pubmed_ids.json
+pubmed_results*.csv
+
+# Secrets
+secret_keys.py
+
+# Misc in scripts
+scripts/.DS_Store
