@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from flask import Blueprint, current_app, redirect, render_template, request, url_for
-from openai import OpenAIError
 
 from ..services.credential_service import credential_available, resolve_api_key
 from ..services.embedding_service import add_embeddings
@@ -49,27 +48,36 @@ def embeddings(project_id: str):
                     maximum=2048,
                     default=current_app.config["DEFAULT_EMBEDDING_BATCH_SIZE"],
                 )
-                df = add_embeddings(
-                    path / source_name,
-                    path / "pubmed_results_with_embeddings.csv",
-                    api_key=api_key,
-                    model=model,
-                    batch_size=batch_size,
+                def run_embeddings(progress):
+                    df = add_embeddings(
+                        path / source_name,
+                        path / "pubmed_results_with_embeddings.csv",
+                        api_key=api_key,
+                        model=model,
+                        batch_size=batch_size,
+                        progress_callback=progress,
+                    )
+                    updated_manifest = load_manifest(path)
+                    invalidate_outputs(updated_manifest, "embeddings")
+                    updated_manifest["embedding_source"] = source_name
+                    updated_manifest.setdefault("files", {})["embeddings"] = "pubmed_results_with_embeddings.csv"
+                    updated_manifest["embedding_rows"] = len(df)
+                    updated_manifest["embedding_model"] = model
+                    updated_manifest["embedding_truncated_rows"] = int(df["EmbeddingInputTruncated"].sum())
+                    updated_manifest["openai_key_source"] = key_source
+                    save_manifest(path, updated_manifest)
+
+                task = current_app.extensions["task_manager"].submit(
+                    path,
+                    kind="embeddings",
+                    title="Generate OpenAI embeddings",
+                    target=run_embeddings,
+                    result_url=url_for("embeddings.embeddings", project_id=project_id),
+                    failure_message="OpenAI could not generate embeddings. Check the key, account access, and input, then resume the task.",
                 )
-                invalidate_outputs(manifest, "embeddings")
-                manifest["embedding_source"] = source_name
-                manifest.setdefault("files", {})["embeddings"] = "pubmed_results_with_embeddings.csv"
-                manifest["embedding_rows"] = len(df)
-                manifest["embedding_model"] = model
-                manifest["embedding_truncated_rows"] = int(df["EmbeddingInputTruncated"].sum())
-                manifest["openai_key_source"] = key_source
-                save_manifest(path, manifest)
-                return redirect(url_for("clustering.clustering", project_id=project_id))
+                return redirect(url_for("embeddings.embeddings", project_id=project_id, task=task["task_id"]))
             except ValueError as exc:
                 error = str(exc)
-            except OpenAIError:
-                current_app.logger.exception("OpenAI embedding request failed")
-                error = "OpenAI could not generate embeddings. Check the key, account access, and input, then try again."
         return render_template(
             "embeddings.html",
             manifest=manifest,

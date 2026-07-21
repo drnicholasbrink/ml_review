@@ -13,6 +13,7 @@
     <a href="{{ url_for('main.index') }}" class="brand">ML Review</a>
     <nav>
       {% if manifest %}<a href="{{ url_for('projects.dashboard', project_id=manifest.project_id) }}">Project overview</a>{% endif %}
+      {% if manifest %}<a href="{{ url_for('tasks.tasks', project_id=manifest.project_id) }}">Tasks</a>{% endif %}
       <a href="{{ url_for('projects.projects_index') }}">Projects</a>
     </nav>
   </header>
@@ -43,6 +44,27 @@
     </aside>
     <section class="workflow-content">
     {% endif %}
+      {% if monitored_task %}
+      <section
+        class="task-monitor card"
+        aria-live="polite"
+        data-task-status-url="{{ url_for('tasks.task_status', project_id=manifest.project_id, task_id=monitored_task.task_id) }}"
+        data-task-id="{{ monitored_task.task_id }}"
+      >
+        <div class="task-monitor-heading">
+          <div><p class="eyebrow">Background task</p><strong>{{ monitored_task.title }}</strong></div>
+          <span class="status-pill task-{{ monitored_task.state }}" data-task-state>{{ monitored_task.state }}</span>
+        </div>
+        <progress max="100" value="{{ monitored_task.percent }}">{{ monitored_task.percent }}%</progress>
+        <div class="task-monitor-meta"><span data-task-message>{{ monitored_task.message }}</span><span data-task-counts>{{ monitored_task.completed }}{% if monitored_task.total %} of {{ monitored_task.total }}{% else %} completed{% endif %}</span></div>
+        <p class="task-error" data-task-error {% if not monitored_task.error %}hidden{% endif %}>{{ monitored_task.error or '' }}</p>
+        <div class="form-actions" data-task-result {% if monitored_task.state not in ['succeeded', 'failed'] %}hidden{% endif %}>
+          <a class="button" href="{{ monitored_task.result_url }}">Refresh step results</a>
+          <a class="button secondary" href="{{ url_for('tasks.tasks', project_id=manifest.project_id) }}">Task history</a>
+        </div>
+      </section>
+      <script defer src="{{ url_for('static', filename='js/tasks.js') }}"></script>
+      {% endif %}
       {% with messages = get_flashed_messages() %}
         {% for message in messages %}<p class="notice">{{ message }}</p>{% endfor %}
       {% endwith %}

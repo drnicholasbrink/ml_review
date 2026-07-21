@@ -6,30 +6,72 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 import pandas as pd
 from openai import OpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 MAX_SCREENING_RECORD_LENGTH = 100_000
+SCREENING_SCHEMA_VERSION = 2
 HUMAN_REVIEW_COLUMNS = ["record_key", "human_decision", "human_note", "human_reviewed_at"]
+ExclusionCategory = Literal[
+    "population",
+    "exposure",
+    "outcome",
+    "study_design",
+    "publication_type",
+    "duplicate",
+    "insufficient_information",
+    "other",
+]
+EXCLUSION_CATEGORY_LABELS = {
+    "population": "Population",
+    "exposure": "Exposure",
+    "outcome": "Outcome",
+    "study_design": "Study design",
+    "publication_type": "Publication type",
+    "duplicate": "Duplicate",
+    "insufficient_information": "Insufficient information",
+    "other": "Other / not specified",
+}
 
 
 class ScreeningDecision(BaseModel):
     decision: Literal["include", "exclude", "uncertain"]
     confidence: Literal["high", "medium", "low"]
-    exclusion_reason: str | None = None
+    exclusion_category: ExclusionCategory | None = Field(
+        default=None,
+        description="Required for excluded records; null for included or uncertain records",
+    )
+    exclusion_reason: str | None = Field(
+        default=None,
+        max_length=400,
+        description="Brief record-specific exclusion rationale; null unless the decision is exclude",
+    )
     reasoning: str = Field(description="Concise rationale grounded in the supplied title, abstract, and criteria")
     population_match: bool
     exposure_match: bool
     outcome_match: bool
     study_design_appropriate: bool
 
+    @model_validator(mode="after")
+    def validate_exclusion_fields(self) -> ScreeningDecision:
+        if self.decision == "exclude" and self.exclusion_category is None:
+            raise ValueError("Excluded records require an exclusion category")
+        if self.decision == "exclude" and not (self.exclusion_reason or "").strip():
+            raise ValueError("Excluded records require a concise exclusion reason")
+        if self.decision != "exclude" and (self.exclusion_category is not None or self.exclusion_reason is not None):
+            raise ValueError("Exclusion category and reason must be null unless the record is excluded")
+        return self
+
 
 def _configuration_hash(criteria: str, model: str) -> str:
     return hashlib.sha256(
-        f"{model}\nleading-character-limit={MAX_SCREENING_RECORD_LENGTH}\n{criteria}".encode()
+        (
+            f"{model}\nscreening-schema={SCREENING_SCHEMA_VERSION}"
+            f"\nleading-character-limit={MAX_SCREENING_RECORD_LENGTH}\n{criteria}"
+        ).encode()
     ).hexdigest()
 
 
@@ -138,6 +180,8 @@ def screen_record(
         instructions=(
             "You are assisting a systematic-review team with title and abstract screening. "
             "Apply the supplied criteria exactly. Choose uncertain when the abstract lacks enough information. "
+            "For an excluded record, select exactly one broad exclusion category and give a brief, "
+            "record-specific exclusion reason. For included or uncertain records, leave both exclusion fields null. "
             "Do not invent study details. AI output is decision support and requires human review.\n\n"
             f"INCLUSION AND EXCLUSION CRITERIA:\n{criteria}"
         ),
@@ -164,6 +208,7 @@ def screen_csv(
     model: str,
     resume: bool = True,
     client: Any | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> pd.DataFrame:
     """Screen records with OpenAI and save progress after every response."""
 
@@ -192,6 +237,9 @@ def screen_csv(
                 if column in existing:
                     result.loc[matching, column] = existing.loc[matching, column]
 
+    completed = int(result["ai_decision"].notna().sum())
+    if progress_callback:
+        progress_callback(completed, len(df), "Resuming saved screening decisions" if completed else "Preparing screening")
     for index, row in df.iterrows():
         if pd.notna(result.loc[index, "ai_decision"]):
             continue
@@ -216,4 +264,9 @@ def screen_csv(
         result.loc[index, "ai_input_characters"] = len(truncated_title) + len(truncated_abstract)
         result.loc[index, "ai_input_original_characters"] = original_length
         result.to_csv(output_csv, index=False)
+        completed += 1
+        if progress_callback:
+            progress_callback(completed, len(df), f"Screened {completed} of {len(df)} records")
+    if progress_callback:
+        progress_callback(len(df), len(df), "Screening CSV saved")
     return result

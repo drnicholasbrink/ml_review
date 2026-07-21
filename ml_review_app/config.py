@@ -24,6 +24,7 @@ class Config:
     DEFAULT_EMBEDDING_BATCH_SIZE = 100
     DEFAULT_TSNE_RANDOM_STATE = 42
     PUBLIC_BASE_URL = os.environ.get("ML_REVIEW_PUBLIC_BASE_URL", "").strip()
+    BACKGROUND_TASKS_EAGER = False
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     TESTING = False
@@ -34,3 +35,4 @@ class TestConfig(Config):
 
     TESTING = True
     WTF_CSRF_ENABLED = False
+    BACKGROUND_TASKS_EAGER = True

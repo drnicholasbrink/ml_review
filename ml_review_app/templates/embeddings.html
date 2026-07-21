@@ -22,7 +22,7 @@
         </select>
       </label>
       <label>Batch size <input type="number" name="batch_size" min="1" max="2048" value="100"></label>
-      <button type="submit">{{ 'Resume or regenerate embeddings' if manifest.files.embeddings else 'Generate embeddings' }}</button>
+      <button type="submit" {% if monitored_task and monitored_task.state in ['queued', 'running'] %}disabled{% endif %}>{{ 'Resume or regenerate embeddings in background' if manifest.files.embeddings else 'Generate embeddings in background' }}</button>
     </form>
   {% else %}
     <p class="notice">Import or fetch records before embedding.</p>

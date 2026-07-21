@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from ml_review_app.services.clustering_service import build_cluster_search, cluster_csv, parse_cluster_keywords
 from ml_review_app.services.deduplication_service import deduplicate_records, normalize_text
@@ -228,9 +229,19 @@ def test_openai_embedding_orchestration_and_clustering(tmp_path: Path):
             return SimpleNamespace(data=data)
 
     client = SimpleNamespace(embeddings=FakeEmbeddings())
-    embedded = add_embeddings(source, tmp_path / "embedded.csv", api_key="test-key", client=client)
+    embedding_progress = []
+    embedded = add_embeddings(
+        source,
+        tmp_path / "embedded.csv",
+        api_key="test-key",
+        client=client,
+        progress_callback=lambda completed, total, message: embedding_progress.append(
+            (completed, total, message)
+        ),
+    )
     assert "Embedding" in embedded.columns
     assert embedded["EmbeddingModel"].eq("text-embedding-3-small").all()
+    assert embedding_progress[-1] == (4, 4, "Embedding artifact saved")
 
     clustered, scores = cluster_csv(tmp_path / "embedded.csv", tmp_path / "clustered.csv", n_clusters=2)
     repeated, _repeated_scores = cluster_csv(tmp_path / "embedded.csv", tmp_path / "clustered-again.csv", n_clusters=2)
@@ -352,6 +363,7 @@ def test_structured_screening_outputs_schema_and_csv(tmp_path: Path):
     source = tmp_path / "selected.csv"
     pd.DataFrame({"RecordID": ["1"], "Title": ["Heat pregnancy"], "Abstract": ["Maternal heat outcome"]}).to_csv(source, index=False)
     client = SimpleNamespace(responses=FakeResponses())
+    screening_progress = []
     screened = screen_csv(
         source,
         "heat maternal pregnancy",
@@ -359,8 +371,52 @@ def test_structured_screening_outputs_schema_and_csv(tmp_path: Path):
         api_key="test-key",
         model="gpt-5.6-luna",
         client=client,
+        progress_callback=lambda completed, total, message: screening_progress.append(
+            (completed, total, message)
+        ),
     )
     assert screened.loc[0, "ai_decision"] == "include"
+    assert pd.isna(screened.loc[0, "ai_exclusion_category"])
+    assert screening_progress[-1] == (1, 1, "Screening CSV saved")
+
+
+def test_excluded_screening_decisions_require_a_broad_category():
+    with pytest.raises(ValueError, match="require an exclusion category"):
+        ScreeningDecision(
+            decision="exclude",
+            confidence="high",
+            exclusion_reason="Animal model rather than the target population.",
+            reasoning="The study uses animals.",
+            population_match=False,
+            exposure_match=True,
+            outcome_match=True,
+            study_design_appropriate=True,
+        )
+
+    with pytest.raises(ValueError, match="require a concise exclusion reason"):
+        ScreeningDecision(
+            decision="exclude",
+            confidence="high",
+            exclusion_category="population",
+            reasoning="The study uses animals.",
+            population_match=False,
+            exposure_match=True,
+            outcome_match=True,
+            study_design_appropriate=True,
+        )
+
+    decision = ScreeningDecision(
+        decision="exclude",
+        confidence="high",
+        exclusion_category="population",
+        exclusion_reason="Animal model rather than the target population.",
+        reasoning="The study uses animals.",
+        population_match=False,
+        exposure_match=True,
+        outcome_match=True,
+        study_design_appropriate=True,
+    )
+    assert decision.exclusion_category == "population"
 
 
 def test_overlength_api_inputs_are_truncated_without_altering_stored_abstracts(tmp_path: Path):
@@ -457,7 +513,9 @@ def test_screening_evaluation_and_human_comparison():
     evaluation = build_screening_evaluation(screened)
     assert evaluation["funnel"]["values"] == [3, 2, 1]
     assert evaluation["manual_review_count"] == 1
-    assert evaluation["exclusion_reasons"] == [{"reason": "animal_study", "count": 1}]
+    assert evaluation["exclusion_categories"] == [
+        {"category": "population", "label": "Population", "count": 1}
+    ]
     assert len(evaluation["tsne_points"]) == 3
 
     human = pd.DataFrame(
@@ -472,3 +530,25 @@ def test_screening_evaluation_and_human_comparison():
     assert metrics["false_positives"] == 1
     assert metrics["true_negatives"] == 1
     assert len(comparison) == 3
+
+
+def test_screening_evaluation_aggregates_specific_and_legacy_exclusion_reasons():
+    screened = pd.DataFrame(
+        {
+            "ai_decision": ["exclude", "exclude", "exclude", "exclude"],
+            "ai_exclusion_category": ["population", "population", None, None],
+            "ai_exclusion_reason": [
+                "Wrong age group",
+                "Animal study",
+                "Non-pregnant population",
+                "Narrative review rather than original research",
+            ],
+        }
+    )
+
+    evaluation = build_screening_evaluation(screened)
+
+    assert evaluation["exclusion_categories"] == [
+        {"category": "population", "label": "Population", "count": 3},
+        {"category": "publication_type", "label": "Publication type", "count": 1},
+    ]

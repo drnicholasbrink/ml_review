@@ -5,6 +5,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 import os
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 import requests
@@ -117,16 +118,30 @@ def parse_pubmed_xml(xml_text: str) -> pd.DataFrame:
     return pd.DataFrame(records, columns=CANONICAL_COLUMNS)
 
 
-def fetch_pubmed_records(query: str, output_csv: Path, api_key: str = "", retmax: int = 500, mindate: str | None = None, maxdate: str | None = None) -> pd.DataFrame:
+def fetch_pubmed_records(
+    query: str,
+    output_csv: Path,
+    api_key: str = "",
+    retmax: int = 500,
+    mindate: str | None = None,
+    maxdate: str | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
+) -> pd.DataFrame:
     """Search and fetch PubMed records into a CSV."""
 
     pmids = search_pubmed_ids(query, api_key=api_key, retmax=retmax, mindate=mindate, maxdate=maxdate)
+    if progress_callback:
+        progress_callback(0, len(pmids), f"Found {len(pmids)} PubMed records")
     frames = []
     for start in range(0, len(pmids), 200):
         xml_text = fetch_pubmed_xml(pmids[start : start + 200], api_key=api_key)
         frames.append(parse_pubmed_xml(xml_text))
         progress = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=CANONICAL_COLUMNS)
         progress.to_csv(output_csv, index=False)
+        if progress_callback:
+            progress_callback(len(progress), len(pmids), f"Fetched {len(progress)} of {len(pmids)} records")
     result = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=CANONICAL_COLUMNS)
     result.to_csv(output_csv, index=False)
+    if progress_callback:
+        progress_callback(len(result), len(pmids), "PubMed CSV saved")
     return result

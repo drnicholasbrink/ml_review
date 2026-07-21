@@ -6,7 +6,6 @@ import math
 
 import pandas as pd
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
-from openai import OpenAIError
 
 from ..services.credential_service import credential_available, resolve_api_key
 from ..services.project_service import invalidate_extraction, load_manifest, project_dir, save_manifest
@@ -20,7 +19,7 @@ PAGE_SIZE = 100
 def _preview_rows(df: pd.DataFrame) -> list[dict]:
     columns = [
         "record_key", "RecordID", "PMID", "DOI", "Title", "Abstract", "ai_decision", "ai_confidence",
-        "ai_exclusion_reason", "ai_population_match", "ai_exposure_match", "ai_outcome_match",
+        "ai_exclusion_category", "ai_exclusion_reason", "ai_population_match", "ai_exposure_match", "ai_outcome_match",
         "ai_study_design_appropriate", "ai_reasoning", "ai_input_truncated", "human_decision",
         "human_note", "human_reviewed_at", "final_decision", "final_decision_source",
         "requires_human_review",
@@ -56,7 +55,9 @@ def _filtered_page(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     elif review_filter == "reviewed":
         filtered = filtered.loc[filtered["final_decision_source"] == "human"]
     if query:
-        searchable = filtered.reindex(columns=["RecordID", "PMID", "Title", "ai_decision", "ai_exclusion_reason", "ai_reasoning"]).fillna("").astype(str).agg(" ".join, axis=1)
+        searchable = filtered.reindex(columns=[
+            "RecordID", "PMID", "Title", "ai_decision", "ai_exclusion_category", "ai_exclusion_reason", "ai_reasoning",
+        ]).fillna("").astype(str).agg(" ".join, axis=1)
         filtered = filtered.loc[searchable.str.contains(query, case=False, regex=False)]
     total = len(filtered)
     pages = max(1, math.ceil(total / PAGE_SIZE))
@@ -132,32 +133,48 @@ def screening(project_id: str):
                 model = validate_text(request.form.get("model"), "Screening model", 100, required=True)
                 if model not in {"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}:
                     raise ValueError("Choose a supported OpenAI screening model")
-                df = screen_csv(
-                    path / source, criteria, path / "ai_screening_full_results.csv",
-                    api_key=api_key, model=model, resume=request.form.get("resume") == "on",
+                resume = request.form.get("resume") == "on"
+
+                def run_screening(progress):
+                    df = screen_csv(
+                        path / source,
+                        criteria,
+                        path / "ai_screening_full_results.csv",
+                        api_key=api_key,
+                        model=model,
+                        resume=resume,
+                        progress_callback=progress,
+                    )
+                    updated_manifest = load_manifest(path)
+                    files = updated_manifest.setdefault("files", {})
+                    files["ai_screening_full_results"] = "ai_screening_full_results.csv"
+                    for key in ("human_screening_decisions", "human_screening_reviewed_results"):
+                        files.pop(key, None)
+                    for key in ("human_review_rows", "human_review_pending_rows", "final_screening_decision_counts"):
+                        updated_manifest.pop(key, None)
+                    invalidate_extraction(updated_manifest)
+                    updated_manifest["screening_rows"] = len(df)
+                    updated_manifest["screening_decision_counts"] = df["ai_decision"].value_counts().to_dict()
+                    updated_manifest["screening_truncated_rows"] = int(df["ai_input_truncated"].fillna(False).sum())
+                    updated_manifest["human_review_rows"] = 0
+                    updated_manifest["human_review_pending_rows"] = int(
+                        (df["ai_decision"].fillna("").eq("uncertain") | df["ai_confidence"].fillna("").eq("low")).sum()
+                    )
+                    updated_manifest["screening_model"] = model
+                    updated_manifest["openai_key_source"] = key_source
+                    save_manifest(path, updated_manifest)
+
+                task = current_app.extensions["task_manager"].submit(
+                    path,
+                    kind="screening",
+                    title="Run OpenAI screening",
+                    target=run_screening,
+                    result_url=url_for("screening.screening", project_id=project_id),
+                    failure_message="OpenAI screening failed. Check the key, account access, and record content, then resume the task.",
                 )
-                files = manifest.setdefault("files", {})
-                files["ai_screening_full_results"] = "ai_screening_full_results.csv"
-                for key in ("human_screening_decisions", "human_screening_reviewed_results"):
-                    files.pop(key, None)
-                for key in ("human_review_rows", "human_review_pending_rows", "final_screening_decision_counts"):
-                    manifest.pop(key, None)
-                invalidate_extraction(manifest)
-                manifest["screening_rows"] = len(df)
-                manifest["screening_decision_counts"] = df["ai_decision"].value_counts().to_dict()
-                manifest["screening_truncated_rows"] = int(df["ai_input_truncated"].fillna(False).sum())
-                manifest["human_review_rows"] = 0
-                manifest["human_review_pending_rows"] = int(
-                    (df["ai_decision"].fillna("").eq("uncertain") | df["ai_confidence"].fillna("").eq("low")).sum()
-                )
-                manifest["screening_model"] = model
-                manifest["openai_key_source"] = key_source
-                save_manifest(path, manifest)
+                return redirect(url_for("screening.screening", project_id=project_id, task=task["task_id"]))
             except ValueError as exc:
                 error = str(exc)
-            except OpenAIError:
-                current_app.logger.exception("OpenAI screening request failed")
-                error = "OpenAI screening failed. Check the key, account access, and record content, then try again."
         if error:
             return render_template(
                 "screening.html", manifest=manifest, criteria=criteria, rows=None, error=error,

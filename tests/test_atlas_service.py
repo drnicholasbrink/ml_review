@@ -127,6 +127,7 @@ def test_cluster_and_screening_metadata_are_joined_without_changing_source(tmp_p
             "RecordID": ["record-0"],
             "ai_decision": ["include"],
             "ai_confidence": ["high"],
+            "ai_exclusion_category": [""],
             "ai_exclusion_reason": [""],
         }
     ).to_csv(tmp_path / "screening.csv", index=False)
@@ -138,3 +139,4 @@ def test_cluster_and_screening_metadata_are_joined_without_changing_source(tmp_p
     table = pq.read_table(tmp_path / "evidence_atlas" / record["artifact"]).to_pydict()
     assert table["Cluster"] == [2, 3]
     assert table["ai_decision"] == ["include", ""]
+    assert table["ai_exclusion_category"] == ["", ""]

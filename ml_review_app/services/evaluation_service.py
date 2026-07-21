@@ -10,6 +10,8 @@ from typing import Any
 import pandas as pd
 from rapidfuzz import fuzz, process
 
+from .screening_service import EXCLUSION_CATEGORY_LABELS
+
 DECISIONS = ["include", "uncertain", "exclude"]
 CONFIDENCE_LEVELS = ["high", "medium", "low"]
 CRITERIA = [
@@ -18,6 +20,27 @@ CRITERIA = [
     ("Outcome", "ai_outcome_match"),
     ("Study design", "ai_study_design_appropriate"),
 ]
+
+LEGACY_EXCLUSION_PATTERNS = {
+    "duplicate": ("duplicate", "already included", "overlap"),
+    "insufficient_information": (
+        "insufficient", "not enough information", "no abstract", "missing abstract", "unclear", "cannot determine",
+    ),
+    "publication_type": (
+        "publication type", "review", "meta-analysis", "meta analysis", "editorial", "comment", "letter",
+        "conference abstract", "protocol", "case report", "not original research",
+    ),
+    "study_design": (
+        "study design", "wrong design", "inappropriate design", "cross-sectional", "ecological", "qualitative",
+        "methods paper",
+    ),
+    "population": (
+        "population", "animal", "in vitro", "paediatric", "pediatric", "children", "adolescent", "men only",
+        "non-pregnant", "not pregnant",
+    ),
+    "exposure": ("exposure", "intervention", "temperature", "heat", "cold", "air pollution"),
+    "outcome": ("outcome", "endpoint"),
+}
 
 
 def _normalized_series(series: pd.Series) -> pd.Series:
@@ -34,6 +57,21 @@ def normalize_title(value: object) -> str:
     if pd.isna(value):
         return ""
     return " ".join(re.sub(r"[^a-z0-9 ]+", " ", str(value).lower()).split())
+
+
+def normalize_exclusion_category(category: object, reason: object) -> str:
+    """Return a controlled broad category, including for legacy reason-only results."""
+
+    normalized_category = "" if pd.isna(category) else str(category).strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized_category in EXCLUSION_CATEGORY_LABELS:
+        return normalized_category
+    category_text = "" if pd.isna(category) else str(category).strip().lower().replace("_", " ")
+    reason_text = "" if pd.isna(reason) else str(reason).strip().lower().replace("_", " ")
+    legacy_text = f"{category_text} {reason_text}".strip()
+    for broad_category, patterns in LEGACY_EXCLUSION_PATTERNS.items():
+        if any(pattern in legacy_text for pattern in patterns):
+            return broad_category
+    return "other"
 
 
 def build_screening_evaluation(df: pd.DataFrame) -> dict[str, Any]:
@@ -57,15 +95,18 @@ def build_screening_evaluation(df: pd.DataFrame) -> dict[str, Any]:
         heatmap.append([int(((decisions == decision) & (confidence == level)).sum()) for level in CONFIDENCE_LEVELS])
 
     excluded = df[decisions == "exclude"]
-    exclusion_counts = (
-        excluded.get("ai_exclusion_reason", pd.Series(index=excluded.index, dtype="object"))
-        .fillna("not specified")
-        .astype(str)
-        .str.strip()
-        .replace("", "not specified")
-        .value_counts()
+    categories = excluded.get("ai_exclusion_category", pd.Series(index=excluded.index, dtype="object"))
+    reasons = excluded.get("ai_exclusion_reason", pd.Series(index=excluded.index, dtype="object"))
+    normalized_categories = pd.Series(
+        [normalize_exclusion_category(category, reasons.get(index)) for index, category in categories.items()],
+        index=excluded.index,
+        dtype="object",
     )
-    exclusion_reasons = [{"reason": reason, "count": int(count)} for reason, count in exclusion_counts.items()]
+    exclusion_counts = normalized_categories.value_counts()
+    exclusion_categories = [
+        {"category": category, "label": EXCLUSION_CATEGORY_LABELS[category], "count": int(count)}
+        for category, count in exclusion_counts.items()
+    ]
 
     sankey_labels = ["Screened", "Included", "Uncertain", "Excluded"]
     sankey_sources: list[int] = []
@@ -77,8 +118,8 @@ def build_screening_evaluation(df: pd.DataFrame) -> dict[str, Any]:
             sankey_sources.append(0)
             sankey_targets.append(target)
             sankey_values.append(count)
-    for item in exclusion_reasons:
-        sankey_labels.append(item["reason"].replace("_", " ").title())
+    for item in exclusion_categories:
+        sankey_labels.append(item["label"])
         sankey_sources.append(3)
         sankey_targets.append(len(sankey_labels) - 1)
         sankey_values.append(item["count"])
@@ -105,7 +146,7 @@ def build_screening_evaluation(df: pd.DataFrame) -> dict[str, Any]:
         "confidence_counts": confidence_counts,
         "criteria": criteria,
         "heatmap": {"x": CONFIDENCE_LEVELS, "y": DECISIONS, "z": heatmap},
-        "exclusion_reasons": exclusion_reasons,
+        "exclusion_categories": exclusion_categories,
         "funnel": {
             "stages": ["Records screened", "Include or manual review", "Included"],
             "values": [total, decision_counts["include"] + decision_counts["uncertain"], decision_counts["include"]],

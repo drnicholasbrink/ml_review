@@ -65,14 +65,35 @@ def pubmed(project_id: str):
                 manifest["pubmed_key_source"] = key_source
                 save_manifest(path, manifest)
             elif action == "fetch":
-                df = fetch_pubmed_records(query, path / "pubmed_results_complete.csv", api_key=api_key, retmax=retmax_value, mindate=mindate, maxdate=maxdate)
-                invalidate_outputs(manifest, "records")
-                manifest["record_source"] = "pubmed"
-                manifest.setdefault("files", {})["pubmed_results_complete"] = "pubmed_results_complete.csv"
-                manifest["pubmed_rows"] = len(df)
-                manifest["pubmed_key_source"] = key_source
                 save_manifest(path, manifest)
-                return redirect(url_for("embeddings.embeddings", project_id=project_id))
+
+                def run_pubmed_fetch(progress):
+                    df = fetch_pubmed_records(
+                        query,
+                        path / "pubmed_results_complete.csv",
+                        api_key=api_key,
+                        retmax=retmax_value,
+                        mindate=mindate,
+                        maxdate=maxdate,
+                        progress_callback=progress,
+                    )
+                    updated_manifest = load_manifest(path)
+                    invalidate_outputs(updated_manifest, "records")
+                    updated_manifest["record_source"] = "pubmed"
+                    updated_manifest.setdefault("files", {})["pubmed_results_complete"] = "pubmed_results_complete.csv"
+                    updated_manifest["pubmed_rows"] = len(df)
+                    updated_manifest["pubmed_key_source"] = key_source
+                    save_manifest(path, updated_manifest)
+
+                task = current_app.extensions["task_manager"].submit(
+                    path,
+                    kind="pubmed_fetch",
+                    title="Fetch PubMed records",
+                    target=run_pubmed_fetch,
+                    result_url=url_for("pubmed.pubmed", project_id=project_id),
+                    failure_message="PubMed could not complete the fetch. Check the connection and query, then resume the task.",
+                )
+                return redirect(url_for("pubmed.pubmed", project_id=project_id, task=task["task_id"]))
             else:
                 raise ValueError("Choose Count records or Fetch records")
         except ValueError as exc:

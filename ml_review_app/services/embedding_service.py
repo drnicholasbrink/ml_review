@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 from openai import OpenAI
@@ -48,6 +48,7 @@ def add_embeddings(
     title_column: str = "Title",
     abstract_column: str = "Abstract",
     client: Any | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> pd.DataFrame:
     """Generate real OpenAI embeddings, saving progress after every batch."""
 
@@ -67,6 +68,9 @@ def add_embeddings(
     api_client = client or OpenAI(api_key=api_key)
 
     pending = [index for index, value in embeddings.items() if not value]
+    completed = len(df) - len(pending)
+    if progress_callback:
+        progress_callback(completed, len(df), "Resuming saved embeddings" if completed else "Preparing embedding batches")
     for start in range(0, len(pending), batch_size):
         indices = pending[start : start + batch_size]
         response = api_client.embeddings.create(
@@ -86,6 +90,9 @@ def add_embeddings(
         progress["EmbeddingInputCharacters"] = [len(text) for text in texts]
         progress["EmbeddingInputOriginalCharacters"] = [len(text) for text in original_texts]
         progress.to_csv(output_csv, index=False)
+        completed += len(indices)
+        if progress_callback:
+            progress_callback(completed, len(df), f"Embedded {completed} of {len(df)} records")
 
     result = df.copy()
     result["Embedding"] = embeddings
@@ -94,4 +101,6 @@ def add_embeddings(
     result["EmbeddingInputCharacters"] = [len(text) for text in texts]
     result["EmbeddingInputOriginalCharacters"] = [len(text) for text in original_texts]
     result.to_csv(output_csv, index=False)
+    if progress_callback:
+        progress_callback(len(df), len(df), "Embedding artifact saved")
     return result

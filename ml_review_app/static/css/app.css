@@ -1,5 +1,6 @@
 :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; background: #f6f8fb; color: #162033; line-height: 1.5; }
 .container, .workflow-content, section, article, aside, form, label, .card, .workflow-card, .run-card { min-width: 0; }
 h1, h2, h3, h4, p, pre, code, label, .notice, .workflow-link, .workflow-card, .run-card, .branch-title, .status-pill, .decision-badge, th, td { overflow-wrap: anywhere; hyphens: auto; }
@@ -43,6 +44,19 @@ code { white-space: break-spaces; word-break: break-word; }
 .status-pill.complete { color: #047857; background: #d1fae5; }
 .status-pill.blocked { color: #64748b; background: #e2e8f0; }
 .status-pill.attention { color: #9a3412; background: #ffedd5; }
+.status-pill.task-queued { color: #1d4ed8; background: #dbeafe; }
+.status-pill.task-running { color: #6d28d9; background: #ede9fe; }
+.status-pill.task-succeeded { color: #047857; background: #d1fae5; }
+.status-pill.task-failed { color: #991b1b; background: #fee2e2; }
+.task-monitor { border-color: #bfdbfe; background: linear-gradient(135deg, #fff, #eff6ff); }
+.task-monitor-heading, .task-monitor-meta, .task-history-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.task-monitor progress, .task-history progress { width: 100%; height: .8rem; accent-color: #2563eb; }
+.task-monitor-meta { margin-top: .35rem; color: #475569; font-size: .85rem; }
+.task-error { margin: .65rem 0; color: #991b1b; font-weight: 700; }
+.task-history { display: grid; gap: .75rem; }
+.task-history-row { display: grid; grid-template-columns: minmax(180px, 1.1fr) minmax(100px, .4fr) minmax(220px, 1.3fr) auto; padding: 1rem; border: 1px solid #dbe3ef; border-radius: 14px; background: #f8fafc; }
+.task-history-row > div { min-width: 0; }
+.task-history-row small { display: block; color: #64748b; }
 .stack { display: grid; gap: 1rem; }
 .label-with-help { display: inline-flex; align-items: center; gap: 0.45rem; }
 .info-link { display: inline-grid; place-items: center; width: 1.2rem; height: 1.2rem; border: 1px solid currentColor; border-radius: 50%; font-size: 0.78rem; font-weight: 700; line-height: 1; text-decoration: none; }
@@ -193,6 +207,7 @@ th, td { border-bottom: 1px solid #e5e7eb; padding: .65rem; text-align: left; ve
   .atlas-layout .workflow-nav { display: flex; gap: .35rem; overflow-x: auto; overscroll-behavior-inline: contain; scroll-snap-type: inline proximity; }
   .atlas-layout .workflow-nav li { flex: 0 0 min(205px, 70vw); scroll-snap-align: start; }
   .atlas-layout .workflow-link { height: 100%; padding: .65rem; }
+  .task-history-row { grid-template-columns: minmax(0, 1fr); align-items: start; }
   .chart-wide { grid-column: auto; }
   .run-card { margin-left: calc(var(--branch-depth) * .8rem); }
   .data-table { min-width: 680px; }
