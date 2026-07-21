@@ -211,6 +211,42 @@ def test_pubmed_count_preserves_the_approved_fetch_scope(tmp_path: Path, monkeyp
     assert "last_pubmed_parameters" not in manifest
 
 
+def test_pubmed_fetch_runs_as_a_tracked_background_task(tmp_path: Path, monkeypatch):
+    app = make_app(tmp_path)
+    client = app.test_client()
+    project_id, setup_url = create_project(client)
+    client.post(
+        setup_url,
+        data={
+            "search_strategy": "pregnancy AND heat",
+            "inclusion_criteria": "Include maternal outcomes.",
+        },
+    )
+
+    def fake_fetch(_query, output, **kwargs):
+        frame = pd.DataFrame(
+            [{"RecordID": "1", "PMID": "1", "Title": "Fixture", "Abstract": "Abstract"}]
+        )
+        kwargs["progress_callback"](0, 1, "Found one record")
+        frame.to_csv(output, index=False)
+        kwargs["progress_callback"](1, 1, "Saved")
+        return frame
+
+    monkeypatch.setattr("ml_review_app.blueprints.pubmed.fetch_pubmed_records", fake_fetch)
+    response = client.post(
+        f"/projects/{project_id}/pubmed",
+        data={"action": "fetch", "retmax": "1"},
+    )
+    assert response.status_code == 302
+    assert "/pubmed?task=" in response.headers["Location"]
+    completed = client.get(response.headers["Location"])
+    assert b"Completed successfully" in completed.data
+    assert b"Task history" in completed.data
+    manifest = load_manifest(tmp_path / "runtime" / "projects" / project_id)
+    assert manifest["record_source"] == "pubmed"
+    assert manifest["pubmed_rows"] == 1
+
+
 def test_extraction_route_runs_a_resumable_test_and_exposes_exports(tmp_path: Path, monkeypatch):
     app = make_app(tmp_path)
     client = app.test_client()
@@ -265,9 +301,12 @@ def test_extraction_route_runs_a_resumable_test_and_exposes_exports(tmp_path: Pa
         f"/projects/{project_id}/extraction",
         data={"model": "gpt-5.6-luna", "scope": "test", "test_limit": "1", "resume": "on"},
     )
-    assert response.status_code == 200
-    assert b"Extraction exports" in response.data
-    assert b"Validate against full text" in response.data
+    assert response.status_code == 302
+    assert "/extraction?task=" in response.headers["Location"]
+    completed = client.get(response.headers["Location"])
+    assert b"Extraction exports" in completed.data
+    assert b"Validate against full text" in completed.data
+    assert b"Completed successfully" in completed.data
     manifest = load_manifest(project_path)
     assert manifest["extraction_rows"] == 1
     assert manifest["files"]["effect_estimates"] == "effect_estimates.csv"
@@ -529,7 +568,9 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
         data={"model": "text-embedding-3-small", "batch_size": "100"},
     )
     assert response.status_code == 302
-    assert response.headers["Location"].endswith("/clustering")
+    assert "/embeddings?task=" in response.headers["Location"]
+    completed_embeddings = client.get(response.headers["Location"])
+    assert b"Completed successfully" in completed_embeddings.data
 
     initial_clustering = client.get(f"/projects/{project_id}/clustering")
     assert b"Analyze new root WCSS" in initial_clustering.data
@@ -622,11 +663,13 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
         f"/projects/{project_id}/screening",
         data={"model": "gpt-5.6-luna", "resume": "on"},
     )
-    assert response.status_code == 200
-    assert b"Screening status" in response.data
-    assert b"Human adjudication queue" in response.data
-    assert b'id="screening-table"' in response.data
-    assert b"<pre>[{" not in response.data
+    assert response.status_code == 302
+    assert "/screening?task=" in response.headers["Location"]
+    completed_screening = client.get(response.headers["Location"])
+    assert b"Screening status" in completed_screening.data
+    assert b"Human adjudication queue" in completed_screening.data
+    assert b'id="screening-table"' in completed_screening.data
+    assert b"<pre>[{" not in completed_screening.data
 
     screened = pd.read_csv(project_path / "ai_screening_full_results.csv")
     assert len(screened) == 5

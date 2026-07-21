@@ -228,9 +228,19 @@ def test_openai_embedding_orchestration_and_clustering(tmp_path: Path):
             return SimpleNamespace(data=data)
 
     client = SimpleNamespace(embeddings=FakeEmbeddings())
-    embedded = add_embeddings(source, tmp_path / "embedded.csv", api_key="test-key", client=client)
+    embedding_progress = []
+    embedded = add_embeddings(
+        source,
+        tmp_path / "embedded.csv",
+        api_key="test-key",
+        client=client,
+        progress_callback=lambda completed, total, message: embedding_progress.append(
+            (completed, total, message)
+        ),
+    )
     assert "Embedding" in embedded.columns
     assert embedded["EmbeddingModel"].eq("text-embedding-3-small").all()
+    assert embedding_progress[-1] == (4, 4, "Embedding artifact saved")
 
     clustered, scores = cluster_csv(tmp_path / "embedded.csv", tmp_path / "clustered.csv", n_clusters=2)
     repeated, _repeated_scores = cluster_csv(tmp_path / "embedded.csv", tmp_path / "clustered-again.csv", n_clusters=2)
@@ -352,6 +362,7 @@ def test_structured_screening_outputs_schema_and_csv(tmp_path: Path):
     source = tmp_path / "selected.csv"
     pd.DataFrame({"RecordID": ["1"], "Title": ["Heat pregnancy"], "Abstract": ["Maternal heat outcome"]}).to_csv(source, index=False)
     client = SimpleNamespace(responses=FakeResponses())
+    screening_progress = []
     screened = screen_csv(
         source,
         "heat maternal pregnancy",
@@ -359,8 +370,12 @@ def test_structured_screening_outputs_schema_and_csv(tmp_path: Path):
         api_key="test-key",
         model="gpt-5.6-luna",
         client=client,
+        progress_callback=lambda completed, total, message: screening_progress.append(
+            (completed, total, message)
+        ),
     )
     assert screened.loc[0, "ai_decision"] == "include"
+    assert screening_progress[-1] == (1, 1, "Screening CSV saved")
 
 
 def test_overlength_api_inputs_are_truncated_without_altering_stored_abstracts(tmp_path: Path):

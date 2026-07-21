@@ -6,7 +6,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 import pandas as pd
 from openai import OpenAI
@@ -194,6 +194,7 @@ def extract_csv(
     limit: int | None = None,
     resume: bool = True,
     client: Any | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[pd.DataFrame, int]:
     """Extract eligible records with progress saved after every response."""
 
@@ -216,6 +217,10 @@ def extract_csv(
             existing = pd.DataFrame()
     processed = set(existing.get("extraction_record_key", pd.Series(dtype="object")).fillna("").astype(str))
     rows = existing.to_dict(orient="records")
+    batch_keys = [_record_key(row, index) for index, row in batch.iterrows()]
+    completed = sum(key in processed for key in batch_keys)
+    if progress_callback:
+        progress_callback(completed, len(batch), "Resuming saved extractions" if completed else "Preparing structured extraction")
     for index, row in batch.iterrows():
         key = _record_key(row, index)
         if key in processed:
@@ -234,10 +239,15 @@ def extract_csv(
         rows.append(_flatten_result(row, extraction, key=key, model=model, config_hash=config_hash))
         processed.add(key)
         pd.DataFrame(rows).to_csv(output_csv, index=False)
+        completed += 1
+        if progress_callback:
+            progress_callback(completed, len(batch), f"Extracted {completed} of {len(batch)} records")
     result = pd.DataFrame(rows)
     if result.empty:
         raise ValueError("No extraction results were produced")
     result.to_csv(output_csv, index=False)
+    if progress_callback:
+        progress_callback(len(batch), len(batch), "Extraction artifacts ready")
     return result, candidate_count
 
 

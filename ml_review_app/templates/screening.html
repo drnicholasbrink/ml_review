@@ -24,7 +24,7 @@
       </select>
     </label>
     <label class="checkbox-label"><input type="checkbox" name="resume" checked> Resume records already screened with these criteria and this model</label>
-    <button type="submit" {% if not source_ready or not criteria %}disabled{% endif %}>Run OpenAI screening</button>
+    <button type="submit" {% if not source_ready or not criteria or (monitored_task and monitored_task.state in ['queued', 'running']) %}disabled{% endif %}>Run OpenAI screening in background</button>
   </form>
   {% if not source_ready %}<p class="page-intro">Select or deduplicate records before screening.</p>{% endif %}
 </section>
@@ -96,7 +96,7 @@
                 </select>
               </label>
               <label>Audit note <textarea name="human_note" maxlength="2000" rows="3" aria-label="Audit note for {{ row.Title }}">{{ row.human_note }}</textarea></label>
-              <button type="submit">Save review</button>
+              <button type="submit" {% if monitored_task and monitored_task.state in ['queued', 'running'] %}disabled{% endif %}>Save review</button>
               {% if row.human_reviewed_at %}<small>Saved {{ row.human_reviewed_at }}</small>{% endif %}
             </form>
           </td>

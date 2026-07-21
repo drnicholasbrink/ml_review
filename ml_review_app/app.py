@@ -7,6 +7,7 @@ from flask_wtf.csrf import CSRFError, CSRFProtect
 
 from .config import Config
 from .services.project_service import ensure_runtime_dir
+from .services.task_service import TaskManager
 
 
 def create_app(config_object: type[Config] | None = None) -> Flask:
@@ -16,6 +17,10 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
     app.config.from_object(config_object or Config)
     CSRFProtect(app)
     ensure_runtime_dir(app.config["RUNTIME_DIR"])
+    app.extensions["task_manager"] = TaskManager(
+        app,
+        eager=bool(app.config.get("BACKGROUND_TASKS_EAGER")),
+    )
 
     from .blueprints.main import bp as main_bp
     from .blueprints.projects import bp as projects_bp
@@ -28,6 +33,7 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
     from .blueprints.evaluation import bp as evaluation_bp
     from .blueprints.extraction import bp as extraction_bp
     from .blueprints.exports import bp as exports_bp
+    from .blueprints.tasks import bp as tasks_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(projects_bp)
@@ -40,6 +46,32 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
     app.register_blueprint(evaluation_bp)
     app.register_blueprint(extraction_bp)
     app.register_blueprint(exports_bp)
+    app.register_blueprint(tasks_bp)
+
+    @app.before_request
+    def block_project_mutations_while_task_runs():
+        if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+            return None
+        project_id = (request.view_args or {}).get("project_id")
+        if not project_id:
+            return None
+        from .services.project_service import project_dir
+        from .services.task_service import active_task
+
+        try:
+            path = project_dir(app.config["RUNTIME_DIR"], project_id)
+        except (FileNotFoundError, ValueError):
+            return None
+        task = active_task(path)
+        if task is None:
+            return None
+        return render_template(
+            "error.html",
+            title="Background task running",
+            message=(
+                f"{task['title']} is currently {task['state']}. Wait for it to finish before changing this project."
+            ),
+        ), 409
 
     @app.context_processor
     def inject_project_workflow():
@@ -47,6 +79,7 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
         if not project_id:
             return {}
         from .services.project_service import load_manifest, project_dir
+        from .services.task_service import active_task, load_task
         from .services.workflow_service import build_workflow_steps
 
         try:
@@ -54,7 +87,19 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
             manifest = load_manifest(path)
         except (FileNotFoundError, ValueError):
             return {}
-        return {"manifest": manifest, "workflow_steps": build_workflow_steps(path, manifest)}
+        monitored_task = None
+        requested_task_id = request.args.get("task", "")
+        if requested_task_id:
+            try:
+                monitored_task = load_task(path, requested_task_id)
+            except (FileNotFoundError, ValueError):
+                monitored_task = None
+        monitored_task = monitored_task or active_task(path)
+        return {
+            "manifest": manifest,
+            "workflow_steps": build_workflow_steps(path, manifest),
+            "monitored_task": monitored_task,
+        }
 
     @app.errorhandler(404)
     @app.errorhandler(FileNotFoundError)

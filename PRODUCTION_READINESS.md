@@ -22,8 +22,9 @@ The review exercised the complete interface with a real PubMed query bounded to 
 | Screening | Original AI fields remain immutable; human decisions, notes, timestamps, final-decision source, paging, filtering, and reviewed export are available. |
 | Evaluation | Funnel, Sankey, confidence, criterion, exclusion, t-SNE, human-reference metrics, and downloadable mismatches were checked. |
 | Extraction | Included/final decisions feed a resumable Structured Outputs schema; stale extractions are removed when eligibility changes; publication-oriented CSV/JSON exports are available. |
+| Background tasks | PubMed fetch, embeddings, screening, and extraction run in a serial process-local worker with durable status, live progress polling, safe failures, restart recovery, and project-level write exclusion. |
 | Handoff | A ZIP assembles protocol inputs, record audit, screening/adjudication, evaluation, and extraction artifacts without credentials or embeddings. |
-| Runtime | Local-only binding, required Compose secret, CSRF, security headers, local Plotly delivery, readiness check, and serialized filesystem writes define the supported deployment boundary. |
+| Runtime | Local-only port 5055 binding, required Compose secret, CSRF, security headers, local Plotly delivery, readiness check, and serialized filesystem writes define the supported deployment boundary. |
 
 ## Scientific safeguards
 
@@ -35,4 +36,4 @@ The review exercised the complete interface with a real PubMed query bounded to 
 
 ## Deliberate non-goals and escalation boundary
 
-Remote or concurrent multi-user service is not supported by the supplied Compose profile. That deployment would require authentication/authorization, TLS, a background job system, shared transactional storage, centralized audit logging, backups, retention controls, and a privacy/security review appropriate to the data. These are deployment-architecture requirements rather than hidden limitations of the validated local workflow.
+Remote or concurrent multi-user service is not supported by the supplied Compose profile. That deployment would require authentication/authorization, TLS, an external durable queue and worker pool, shared transactional storage, centralized audit logging, backups, retention controls, and a privacy/security review appropriate to the data. These are deployment-architecture requirements rather than hidden limitations of the validated local workflow.

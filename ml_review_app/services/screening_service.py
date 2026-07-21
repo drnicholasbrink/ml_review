@@ -6,7 +6,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 import pandas as pd
 from openai import OpenAI
@@ -164,6 +164,7 @@ def screen_csv(
     model: str,
     resume: bool = True,
     client: Any | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> pd.DataFrame:
     """Screen records with OpenAI and save progress after every response."""
 
@@ -192,6 +193,9 @@ def screen_csv(
                 if column in existing:
                     result.loc[matching, column] = existing.loc[matching, column]
 
+    completed = int(result["ai_decision"].notna().sum())
+    if progress_callback:
+        progress_callback(completed, len(df), "Resuming saved screening decisions" if completed else "Preparing screening")
     for index, row in df.iterrows():
         if pd.notna(result.loc[index, "ai_decision"]):
             continue
@@ -216,4 +220,9 @@ def screen_csv(
         result.loc[index, "ai_input_characters"] = len(truncated_title) + len(truncated_abstract)
         result.loc[index, "ai_input_original_characters"] = original_length
         result.to_csv(output_csv, index=False)
+        completed += 1
+        if progress_callback:
+            progress_callback(completed, len(df), f"Screened {completed} of {len(df)} records")
+    if progress_callback:
+        progress_callback(len(df), len(df), "Screening CSV saved")
     return result

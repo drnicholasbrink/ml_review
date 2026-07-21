@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 
 import pandas as pd
-from flask import Blueprint, current_app, render_template, request
-from openai import OpenAIError
+from flask import Blueprint, current_app, redirect, render_template, request, url_for
 
 from ..services.credential_service import credential_available, resolve_api_key
 from ..services.extraction_service import extract_csv, extraction_candidates, write_extraction_exports
@@ -88,34 +87,46 @@ def extraction(project_id: str):
             )
             include_uncertain = request.form.get("include_uncertain") == "on"
             output_path = path / "ai_extraction_full_results.csv"
-            result, candidate_count = extract_csv(
-                screening_path,
-                criteria,
-                output_path,
-                api_key=api_key,
-                model=model,
-                include_uncertain=include_uncertain,
-                limit=test_limit if scope == "test" else None,
-                resume=request.form.get("resume") == "on",
+            limit = test_limit if scope == "test" else None
+            resume = request.form.get("resume") == "on"
+
+            def run_extraction(progress):
+                result, total_candidates = extract_csv(
+                    screening_path,
+                    criteria,
+                    output_path,
+                    api_key=api_key,
+                    model=model,
+                    include_uncertain=include_uncertain,
+                    limit=limit,
+                    resume=resume,
+                    progress_callback=progress,
+                )
+                derived = write_extraction_exports(result, path)
+                updated_manifest = load_manifest(path)
+                updated_manifest.setdefault("files", {})["ai_extraction_full_results"] = output_path.name
+                updated_manifest["files"].update(derived)
+                updated_manifest["extraction_rows"] = len(result)
+                updated_manifest["extraction_candidate_rows"] = total_candidates
+                updated_manifest["extraction_confidence_counts"] = result["extraction_confidence"].value_counts().to_dict()
+                updated_manifest["extraction_completeness_counts"] = result["data_completeness"].value_counts().to_dict()
+                updated_manifest["extraction_model"] = model
+                updated_manifest["extraction_include_uncertain"] = include_uncertain
+                updated_manifest["extraction_last_scope"] = scope
+                updated_manifest["openai_key_source"] = key_source
+                save_manifest(path, updated_manifest)
+
+            task = current_app.extensions["task_manager"].submit(
+                path,
+                kind="extraction",
+                title="Run structured extraction",
+                target=run_extraction,
+                result_url=url_for("extraction.extraction", project_id=project_id),
+                failure_message="OpenAI extraction failed. Check the key, account access, and article content, then resume the task.",
             )
-            derived = write_extraction_exports(result, path)
-            manifest.setdefault("files", {})["ai_extraction_full_results"] = output_path.name
-            manifest["files"].update(derived)
-            manifest["extraction_rows"] = len(result)
-            manifest["extraction_candidate_rows"] = candidate_count
-            manifest["extraction_confidence_counts"] = result["extraction_confidence"].value_counts().to_dict()
-            manifest["extraction_completeness_counts"] = result["data_completeness"].value_counts().to_dict()
-            manifest["extraction_model"] = model
-            manifest["extraction_include_uncertain"] = include_uncertain
-            manifest["extraction_last_scope"] = scope
-            manifest["openai_key_source"] = key_source
-            save_manifest(path, manifest)
-            rows = _preview_rows(result)
+            return redirect(url_for("extraction.extraction", project_id=project_id, task=task["task_id"]))
         except (ValueError, json.JSONDecodeError) as exc:
             error = str(exc)
-        except OpenAIError:
-            current_app.logger.exception("OpenAI extraction request failed")
-            error = "OpenAI extraction failed. Check the key, account access, and article content, then resume the run."
 
     if rows is None:
         output_name = manifest.get("files", {}).get("ai_extraction_full_results")

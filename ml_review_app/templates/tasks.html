@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Background tasks · ML Review{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><p class="eyebrow">Activity</p><h1>{{ manifest.name }} · Background tasks</h1><p class="page-intro">Long-running API work continues while you use the rest of the project. Progress is saved here so failures and restarts remain visible.</p></div>
+  <a class="button secondary" href="{{ url_for('projects.dashboard', project_id=manifest.project_id) }}">Project overview</a>
+</div>
+{% if tasks %}
+<section class="card task-history">
+  {% for task in tasks %}
+  <article class="task-history-row" data-task-history-id="{{ task.task_id }}">
+    <div><strong>{{ task.title }}</strong><small>{{ task.created_at }} · {{ task.kind | replace('_', ' ') | title }}</small></div>
+    <div><span class="status-pill task-{{ task.state }}" data-task-history-state>{{ task.state | title }}</span><small data-task-history-counts>{{ task.completed }} / {{ task.total or '—' }}</small></div>
+    <div><progress max="100" value="{{ task.percent }}">{{ task.percent }}%</progress><small data-task-history-message>{{ task.message }}</small><p class="task-error" data-task-history-error {% if not task.error %}hidden{% endif %}>{{ task.error or '' }}</p></div>
+    <a class="button secondary" href="{{ task.result_url }}">Open step</a>
+  </article>
+  {% endfor %}
+</section>
+{% else %}
+<section class="card"><h2>No background tasks yet</h2><p>PubMed fetches, embeddings, AI screening, and structured extraction will appear here when started.</p></section>
+{% endif %}
+{% endblock %}

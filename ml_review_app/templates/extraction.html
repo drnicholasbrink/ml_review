@@ -40,7 +40,7 @@
     </div>
     <label class="checkbox-label"><input type="checkbox" name="include_uncertain" {% if include_uncertain %}checked{% endif %}> Include uncertain screening decisions</label>
     <label class="checkbox-label"><input type="checkbox" name="resume" checked> Resume records already extracted with this model and schema</label>
-    <button type="submit">Run or resume structured extraction</button>
+    <button type="submit" {% if monitored_task and monitored_task.state in ['queued', 'running'] %}disabled{% endif %}>Run or resume structured extraction in background</button>
   </form>
   {% else %}<p class="page-intro">Run AI screening before starting extraction.</p>{% endif %}
 </section>
