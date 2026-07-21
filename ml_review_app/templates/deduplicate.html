@@ -2,15 +2,18 @@
 {% block title %}Deduplicate · ML Review{% endblock %}
 {% block content %}
 <h1>{{ manifest.name }} · Deduplicate</h1>
-{% if error %}<p class="notice">{{ error }}</p>{% endif %}
+<p class="page-intro">Choose the fields that must match for two imported records to be treated as duplicates.</p>
+{% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+{% if not columns %}<p class="notice">Upload and map a CSV before this step becomes available.</p>{% endif %}
 <form method="post" class="card stack">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <p>Select one or more columns to match duplicate records. Title is the default.</p>
   <div class="grid">
     {% for column in columns %}
       <label><input type="checkbox" name="match_columns" value="{{ column }}" {% if column == 'Title' %}checked{% endif %}> {{ column }}</label>
     {% endfor %}
   </div>
-  <button type="submit">Run deduplication</button>
+  <button type="submit" {% if not columns %}disabled{% endif %}>Run deduplication</button>
 </form>
 {% if manifest.files.deduplicated_records %}
   <p><a class="button" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='deduplicated_records.csv') }}">Download deduplicated CSV</a>

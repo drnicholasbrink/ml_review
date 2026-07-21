@@ -2,8 +2,10 @@
 {% block title %}Projects · ML Review{% endblock %}
 {% block content %}
 <h1>Projects</h1>
+{% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
 <form method="post" class="card form-inline">
-  <label>New project name <input name="name" placeholder="Heat and maternal health review"></label>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>New project name <input name="name" maxlength="200" placeholder="Heat and maternal health review"></label>
   <button type="submit">Create project</button>
 </form>
 <div class="grid">
@@ -11,7 +13,7 @@
   <article class="card">
     <h2>{{ project.name }}</h2>
     <p><code>{{ project.project_id }}</code></p>
-    <a href="{{ url_for('projects.setup', project_id=project.project_id) }}">Open</a>
+    <a href="{{ url_for('projects.dashboard', project_id=project.project_id) }}">Open project</a>
   </article>
 {% else %}
   <p>No projects yet.</p>

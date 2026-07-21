@@ -14,13 +14,25 @@ CANONICAL_COLUMNS = ["RecordID", "Title", "Abstract", "Authors", "Date", "Journa
 
 
 def save_uploaded_csv(upload: FileStorage, project_path: Path) -> Path:
-    """Save an uploaded CSV using a safe filename."""
+    """Validate and atomically save an uploaded CSV."""
 
     filename = secure_filename(upload.filename or "uploaded_source.csv") or "uploaded_source.csv"
     if not filename.lower().endswith(".csv"):
-        filename = f"{filename}.csv"
+        raise ValueError("Upload must be a .csv file")
     destination = project_path / "uploaded_source.csv"
-    upload.save(destination)
+    temporary = project_path / ".uploaded_source.pending.csv"
+    upload.save(temporary)
+    try:
+        preview = pd.read_csv(temporary, nrows=1)
+        if not len(preview.columns):
+            raise ValueError("Uploaded CSV must contain a header row")
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError) as exc:
+        temporary.unlink(missing_ok=True)
+        raise ValueError("Uploaded file is empty or is not a readable CSV") from exc
+    except ValueError:
+        temporary.unlink(missing_ok=True)
+        raise
+    temporary.replace(destination)
     return destination
 
 
@@ -68,6 +80,11 @@ def normalize_records(csv_path: Path, mapping: dict[str, str], output_path: Path
     """Create a canonical record CSV from an uploaded CSV and mapping."""
 
     df = pd.read_csv(csv_path)
+    if df.empty:
+        raise ValueError("Uploaded CSV must contain at least one record")
+    record_ids = df[mapping["RecordID"]]
+    if record_ids.isna().any() or record_ids.astype(str).str.strip().eq("").any():
+        raise ValueError("The mapped unique ID column contains missing values")
     normalized = pd.DataFrame()
     for canonical, source in mapping.items():
         normalized[canonical] = df[source]

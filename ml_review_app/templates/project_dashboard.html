@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ manifest.name }} · ML Review{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">Project overview</p>
+    <h1>{{ manifest.name }}</h1>
+    <p class="page-intro">Open any available section directly. Steps that still need an earlier output are shown as unavailable.</p>
+  </div>
+  <code>{{ manifest.project_id }}</code>
+</div>
+
+<div class="workflow-cards">
+{% for step in workflow_steps %}
+  <article class="workflow-card{% if not step.enabled %} disabled{% endif %}">
+    <div class="workflow-card-topline">
+      <span class="step-number">{{ step.number }}</span>
+      <span class="status-pill {{ 'complete' if step.complete else ('blocked' if not step.enabled else 'available') }}">
+        {{ 'Complete' if step.complete else ('Waiting' if not step.enabled else 'Available') }}
+      </span>
+    </div>
+    <h2>{{ step.title }}</h2>
+    <p>{{ step.description }}</p>
+    {% if step.enabled %}
+      <a class="button{% if step.complete %} secondary{% endif %}" href="{{ url_for(step.endpoint, project_id=manifest.project_id) }}">{{ 'Review section' if step.complete else 'Open section' }}</a>
+    {% else %}
+      <button type="button" disabled>{{ step.blocked_reason }}</button>
+    {% endif %}
+  </article>
+{% endfor %}
+</div>
+{% endblock %}

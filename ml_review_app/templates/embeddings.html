@@ -2,10 +2,27 @@
 {% block title %}Embeddings · ML Review{% endblock %}
 {% block content %}
 <h1>{{ manifest.name }} · Embeddings</h1>
-<section class="card">
+<p class="page-intro">Generate semantic vectors with the OpenAI embeddings API. Completed batches are saved so an interrupted run can resume.</p>
+{% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+<section class="card stack">
   {% if source_name %}
     <p>Source: <code>{{ source_name }}</code></p>
-    <form method="post"><button type="submit">Generate demo embeddings</button></form>
+    <form method="post" class="stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>
+        <span class="label-with-help">OpenAI API key <a class="info-link" href="https://help.openai.com/en/articles/4936850-where-do-i-find-my-openai-api-key" target="_blank" rel="noopener" aria-label="How to create an OpenAI API key">i</a></span>
+        <input type="password" name="openai_api_key" maxlength="512" autocomplete="off" placeholder="{% if fallback_available %}Configured key available{% else %}Enter an OpenAI API key{% endif %}">
+        <small>The entered key is used for this request only and is never written to the project.</small>
+      </label>
+      <label>Embedding model
+        <select name="model">
+          <option value="text-embedding-3-small" {% if manifest.embedding_model != 'text-embedding-3-large' %}selected{% endif %}>text-embedding-3-small</option>
+          <option value="text-embedding-3-large" {% if manifest.embedding_model == 'text-embedding-3-large' %}selected{% endif %}>text-embedding-3-large</option>
+        </select>
+      </label>
+      <label>Batch size <input type="number" name="batch_size" min="1" max="2048" value="100"></label>
+      <button type="submit">{{ 'Resume or regenerate embeddings' if manifest.files.embeddings else 'Generate embeddings' }}</button>
+    </form>
   {% else %}
     <p class="notice">Import or fetch records before embedding.</p>
   {% endif %}

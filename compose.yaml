@@ -2,9 +2,12 @@ services:
   ml-review:
     build: .
     ports:
-      - "5000:5000"
+      - "${ML_REVIEW_PORT:-5000}:5000"
     environment:
       ML_REVIEW_RUNTIME_DIR: /app/runtime
-      ML_REVIEW_SECRET_KEY: change-me-for-local-use
+      ML_REVIEW_SECRET_KEY: ${ML_REVIEW_SECRET_KEY:?Run python scripts/export_secrets_to_env.py or set ML_REVIEW_SECRET_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      PUBMED_API_KEY: ${PUBMED_API_KEY:-}
+      NCBI_EMAIL: ${NCBI_EMAIL:-}
     volumes:
       - ./runtime:/app/runtime

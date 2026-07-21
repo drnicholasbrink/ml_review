@@ -10,10 +10,43 @@
 <body>
   <header class="topbar">
     <a href="{{ url_for('main.index') }}" class="brand">ML Review</a>
-    <nav><a href="{{ url_for('projects.projects_index') }}">Projects</a></nav>
+    <nav>
+      {% if manifest %}<a href="{{ url_for('projects.dashboard', project_id=manifest.project_id) }}">Project overview</a>{% endif %}
+      <a href="{{ url_for('projects.projects_index') }}">Projects</a>
+    </nav>
   </header>
-  <main class="container">
-    {% block content %}{% endblock %}
+  <main class="container{% if workflow_steps %} workflow-layout{% endif %}">
+    {% if workflow_steps %}
+    <aside class="workflow-sidebar" aria-label="Review workflow">
+      <div class="workflow-sidebar-heading">
+        <p class="eyebrow">Current project</p>
+        <a href="{{ url_for('projects.dashboard', project_id=manifest.project_id) }}">{{ manifest.name }}</a>
+      </div>
+      <ol class="workflow-nav">
+        {% for step in workflow_steps %}
+        <li>
+          {% if step.enabled %}
+          <a href="{{ url_for(step.endpoint, project_id=manifest.project_id) }}" class="workflow-link{% if request.endpoint == step.endpoint %} active{% endif %}">
+            <span class="step-number">{{ step.number }}</span>
+            <span><strong>{{ step.title }}</strong><small>{{ 'Complete' if step.complete else 'Available' }}</small></span>
+          </a>
+          {% else %}
+          <span class="workflow-link disabled" aria-disabled="true" title="{{ step.blocked_reason }}">
+            <span class="step-number">{{ step.number }}</span>
+            <span><strong>{{ step.title }}</strong><small>{{ step.blocked_reason }}</small></span>
+          </span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ol>
+    </aside>
+    <section class="workflow-content">
+    {% endif %}
+      {% with messages = get_flashed_messages() %}
+        {% for message in messages %}<p class="notice">{{ message }}</p>{% endfor %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    {% if workflow_steps %}</section>{% endif %}
   </main>
 </body>
 </html>

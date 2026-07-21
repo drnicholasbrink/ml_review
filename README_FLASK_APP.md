@@ -1,6 +1,28 @@
-# Flask App Prototype
+# Flask Review Application
 
-This branch contains a Flask prototype that begins implementing the migration plan in `FLASK_APP_MIGRATION_PLAN.md`.
+This application provides an end-to-end web workflow alongside the repository's notebooks. Generated projects and results are stored under `runtime/` and remain uncommitted.
+
+## Configure credentials
+
+Keep credentials out of git. If `scripts/secret_keys.py` already defines `OPENAI_API_KEY` and `PUBMED_API_KEY`, create the Compose environment file with:
+
+```bash
+python scripts/export_secrets_to_env.py
+```
+
+This creates a gitignored `.env` with mode `0600`, adds a random Flask session secret, and does not print key values. Alternatively, copy `.env.example` to `.env` and populate it manually. A key typed in the interface overrides the configured key for that request and is not persisted.
+
+## Run with Docker
+
+```bash
+docker compose up --build
+```
+
+Open <http://127.0.0.1:5000>. If that port is occupied:
+
+```bash
+ML_REVIEW_PORT=5055 docker compose up --build
+```
 
 ## Run locally
 
@@ -9,34 +31,18 @@ pip install -r requirements_.txt
 flask --app wsgi:app run --debug
 ```
 
-Open <http://127.0.0.1:5000>.
+## Workflow
 
-## Run with Docker
+- Create or load an isolated review project.
+- Save a PubMed search strategy and inclusion/exclusion criteria.
+- Fetch real PubMed records, or upload, map, normalize, and deduplicate a CSV.
+- Generate resumable OpenAI embeddings.
+- Create reproducible t-SNE/K-Means runs with immutable history, subclustering, parent navigation, and clickable abstract inspection.
+- Select clusters and run resumable OpenAI Structured Outputs screening.
+- Download generated CSV artifacts.
 
-```bash
-docker compose up --build
-```
+AI screening is decision support. Human reviewers must validate prompts and model choices on a sample, review every uncertain and low-confidence result, compare with human screening when available, and record criteria/model/date/prompt changes.
 
-The app stores projects under `runtime/`, which is mounted in Docker and should remain uncommitted.
+## Operational limitations
 
-## Implemented workflow
-
-- Create/load review projects.
-- Save PubMed search strategy and inclusion criteria text.
-- Upload a CSV and preview its columns.
-- Map a unique ID plus title/abstract/date/journal/DOI columns.
-- Normalize uploaded CSVs to canonical review columns.
-- Deduplicate records using normalized title or reviewer-selected match columns.
-- Generate deterministic offline embeddings for no-cost local testing.
-- Run t-SNE/PCA fallback, elbow scores, K-Means clustering, and Plotly charts.
-- Select clusters and export selected records to screening.
-- Run deterministic offline screening to exercise the structured-output CSV flow without paid API calls.
-- Download generated CSVs.
-
-## Remaining production work
-
-- Harden PubMed ESearch/EFetch for very large searches with full date-window splitting parity and background jobs.
-- Wire real OpenAI embeddings, screening, and extraction calls behind explicit API-key prompts; current default service paths include deterministic offline actions for no-cost local tests.
-- Add background workers for long-running API jobs.
-- Add progressive re-clustering history and individual record include/exclude overrides.
-- Add polished reporting exports and full AI extraction screens.
+API work runs in the Flask request process. Large searches and screening jobs should use a production job queue before multi-user deployment. The application currently exports CSV files; polished extraction and reporting screens remain future work.

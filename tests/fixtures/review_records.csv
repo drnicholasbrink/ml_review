@@ -1,0 +1,7 @@
+source_id,article_title,summary,authors,published,journal,doi,source_database
+R1,Heat exposure in pregnancy,Maternal heat exposure and birth outcomes,A. Researcher,2024,Journal of Heat,10.1000/heat1,ExampleDB
+R2,Heat exposure in pregnancy,Maternal heat exposure and birth outcomes,A. Researcher,2024,Journal of Heat,10.1000/heat1,ExampleDB
+R3,Maternal temperature and preterm birth,Temperature exposure during pregnancy and preterm birth,B. Scientist,2023,Maternal Health,10.1000/heat2,ExampleDB
+R4,Air pollution and childhood asthma,Air quality exposure and respiratory outcomes,C. Reviewer,2022,Respiratory Journal,10.1000/air1,ExampleDB
+R5,Occupational noise and hearing loss,Workplace noise exposure in adults,D. Analyst,2021,Occupational Medicine,10.1000/noise1,ExampleDB
+R6,Climate and maternal health,Climate exposure and maternal outcomes,E. Author,2020,Climate Health,10.1000/climate1,ExampleDB

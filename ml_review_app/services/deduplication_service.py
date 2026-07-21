@@ -35,6 +35,9 @@ def deduplicate_records(
         if col not in df.columns:
             raise ValueError(f"Match column {col!r} not found")
     match_key = df[match_columns].fillna("").astype(str).agg(" | ".join, axis=1).map(normalize_text)
+    empty_key = match_key.eq("")
+    if empty_key.any():
+        match_key.loc[empty_key] = [f"__missing_match_{index}" for index in match_key.index[empty_key]]
     working = df.copy()
     working["_dedupe_key"] = match_key
     working["_duplicate_group_size"] = working.groupby("_dedupe_key")["_dedupe_key"].transform("size")

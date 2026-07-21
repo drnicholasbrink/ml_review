@@ -1,0 +1,15 @@
+.git
+.gitignore
+.DS_Store
+.env
+.venv
+**/__pycache__/
+**/*.py[cod]
+**/.ipynb_checkpoints/
+*.log
+pubmed_ids.json
+pubmed_results*.csv
+runtime/
+secret_keys.py
+**/secret_keys.py
+scripts/secret_keys.py

@@ -1,21 +1,115 @@
 {% extends "base.html" %}
 {% block title %}Clustering · ML Review{% endblock %}
 {% block content %}
-<h1>{{ manifest.name }} · t-SNE and elbow clustering</h1>
+<h1>{{ manifest.name }} · t-SNE clustering</h1>
+<p class="page-intro">Every run saves its coordinates, labels, seed, perplexity, source, and software version. Select a cluster to inspect or refine it; earlier runs remain available.</p>
+{% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+{% if not manifest.files.embeddings %}<p class="notice">Generate embeddings before this step becomes available.</p>{% endif %}
+
 <form method="post" class="card form-inline">
-  <label>Cluster count <input type="number" min="1" max="20" name="n_clusters" value="{{ manifest.cluster_count or 3 }}"></label>
-  <button type="submit">Run clustering</button>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Clusters <input type="number" min="1" max="20" name="n_clusters" value="{{ manifest.cluster_count or 3 }}"></label>
+  <label>Random seed <input type="number" min="0" max="2147483647" name="random_state" value="42"></label>
+  <label>Perplexity <input type="number" min="0.1" max="1000" step="0.1" name="perplexity" placeholder="Automatic"></label>
+  <button type="submit" {% if not manifest.files.embeddings %}disabled{% endif %}>Create new root run</button>
 </form>
-{% if scores %}<section class="card"><h2>Elbow scores</h2><div id="elbow"></div></section>{% endif %}
-{% if rows %}
-<section class="card"><h2>Cluster selection</h2>
-<form method="post" action="{{ url_for('clustering.select_clusters', project_id=manifest.project_id) }}">
-  {% for c in rows | map(attribute='Cluster') | unique | list %}<label><input type="checkbox" name="clusters" value="{{ c }}" checked> Cluster {{ c }}</label>{% endfor %}
-  <button type="submit">Export selected clusters to screening</button>
-</form><div id="scatter"></div></section>
+
+{% if state.runs %}
+<section class="card">
+  <h2>Saved runs</h2>
+  <div class="run-history">
+    {% for run in state.runs %}
+    <form method="post" action="{{ url_for('clustering.activate', project_id=manifest.project_id, run_id=run.run_id) }}" class="run-card{% if active_run and run.run_id == active_run.run_id %} active{% endif %}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <strong>{{ run.run_id }}</strong>
+      <span>Level {{ run.depth }} · {{ run.row_count }} records · {{ run.n_clusters }} clusters</span>
+      <small>{{ run.method }}{% if run.perplexity is not none %}, perplexity {{ run.perplexity }}{% endif %} · seed {{ run.random_state }}</small>
+      {% if run.selected_parent_clusters %}<small>From {{ run.parent_run_id }}, clusters {{ run.selected_parent_clusters | join(', ') }}</small>{% endif %}
+      <button type="submit" class="secondary" {% if active_run and run.run_id == active_run.run_id %}disabled{% endif %}>{{ 'Active' if active_run and run.run_id == active_run.run_id else 'Open run' }}</button>
+    </form>
+    {% endfor %}
+  </div>
+</section>
 {% endif %}
+
+{% if active_run %}
+<section class="card">
+  <div class="section-heading">
+    <div>
+      <h2>{{ active_run.run_id }}: {{ active_run.row_count }} records in {{ active_run.n_clusters }} clusters</h2>
+      <p class="page-intro">{{ active_run.method }}{% if active_run.perplexity is not none %} with perplexity {{ active_run.perplexity }}{% endif %}, seed {{ active_run.random_state }}, scikit-learn {{ active_run.sklearn_version }}.</p>
+    </div>
+    {% if active_run.parent_run_id %}<form method="post" action="{{ url_for('clustering.step_back', project_id=manifest.project_id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="secondary">Step back to parent</button></form>{% endif %}
+  </div>
+</section>
+
+{% if scores %}<section class="card"><h2>Elbow scores</h2><div id="elbow"></div></section>{% endif %}
+
+<section class="explorer-grid">
+  <div class="card"><h2>Interactive map</h2><p class="page-intro">Click a point to view its citation and abstract.</p><div id="scatter"></div></div>
+  <aside class="card point-details" id="point-details" aria-live="polite">
+    <h2>Selected record</h2>
+    <p>Choose a point in the map.</p>
+  </aside>
+</section>
+
+<section class="action-grid">
+  <form method="post" action="{{ url_for('clustering.subcluster', project_id=manifest.project_id) }}" class="card stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <h2>Refine selected clusters</h2>
+    <div class="cluster-options">{% for c in clusters %}<label class="checkbox-label"><input type="checkbox" name="clusters" value="{{ c }}"> Cluster {{ c }}</label>{% endfor %}</div>
+    <div class="form-inline">
+      <label>Subclusters <input type="number" min="1" max="20" name="n_clusters" value="2"></label>
+      <label>Random seed <input type="number" min="0" max="2147483647" name="random_state" value="{{ active_run.random_state }}"></label>
+      <label>Perplexity <input type="number" min="0.1" max="1000" step="0.1" name="perplexity" placeholder="Automatic"></label>
+    </div>
+    <button type="submit">Create subclustering run</button>
+  </form>
+
+  <form method="post" action="{{ url_for('clustering.select_clusters', project_id=manifest.project_id) }}" class="card stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <h2>Continue to screening</h2>
+    <div class="cluster-options">{% for c in clusters %}<label class="checkbox-label"><input type="checkbox" name="clusters" value="{{ c }}" checked> Cluster {{ c }}</label>{% endfor %}</div>
+    <button type="submit">Use selected clusters for screening</button>
+  </form>
+</section>
+{% endif %}
+
 <script>
-{% if scores %}Plotly.newPlot('elbow', [{x: {{ scores|map(attribute='k')|list|tojson }}, y: {{ scores|map(attribute='wcss')|list|tojson }}, mode: 'lines+markers'}], {title: 'Elbow method', xaxis:{title:'K'}, yaxis:{title:'WCSS'}});{% endif %}
-{% if rows %}const rows = {{ rows|tojson }}; Plotly.newPlot('scatter', [{x: rows.map(r=>r.TSNE_1), y: rows.map(r=>r.TSNE_2), text: rows.map(r=>r.Title || r.RecordID), mode:'markers', marker:{color: rows.map(r=>r.Cluster), colorscale:'Viridis', size:10}}], {title:'t-SNE clusters'});{% endif %}
+{% if scores %}
+Plotly.newPlot('elbow', [{x: {{ scores|map(attribute='k')|list|tojson }}, y: {{ scores|map(attribute='wcss')|list|tojson }}, mode: 'lines+markers', type: 'scatter'}], {title: 'Within-cluster sum of squares', xaxis:{title:'K'}, yaxis:{title:'WCSS'}, margin:{t:55}});
+{% endif %}
+{% if rows %}
+const rows = {{ rows|tojson }};
+const scatter = document.getElementById('scatter');
+Plotly.newPlot(scatter, [{
+  x: rows.map(row => row.TSNE_1),
+  y: rows.map(row => row.TSNE_2),
+  text: rows.map(row => row.Title || row.RecordID),
+  customdata: rows.map(row => row.PointID),
+  mode: 'markers',
+  type: 'scattergl',
+  marker: {color: rows.map(row => row.Cluster), colorscale: 'Viridis', size: 10, opacity: 0.85},
+  hovertemplate: '%{text}<br>Cluster %{marker.color}<extra></extra>'
+}], {title: 'Saved t-SNE coordinates', xaxis:{title:'t-SNE 1'}, yaxis:{title:'t-SNE 2'}, margin:{t:55}});
+
+scatter.on('plotly_click', async event => {
+  const pointId = event.points[0].customdata;
+  const panel = document.getElementById('point-details');
+  panel.replaceChildren(Object.assign(document.createElement('p'), {textContent: 'Loading record…'}));
+  try {
+    const response = await fetch({{ url_for('clustering.point_details', project_id=manifest.project_id, point_id='POINT_ID')|tojson }}.replace('POINT_ID', encodeURIComponent(pointId)));
+    const record = await response.json();
+    if (!response.ok) throw new Error(record.error || 'Record could not be loaded');
+    const heading = document.createElement('h2'); heading.textContent = record.Title || 'Untitled record';
+    const meta = document.createElement('p'); meta.className = 'record-meta'; meta.textContent = [record.Authors, record.Journal, record.Date, record.PMID ? `PMID ${record.PMID}` : record.RecordID].filter(Boolean).join(' · ');
+    const abstractHeading = document.createElement('h3'); abstractHeading.textContent = 'Abstract';
+    const abstract = document.createElement('p'); abstract.textContent = record.Abstract || 'No abstract was supplied.';
+    panel.replaceChildren(heading, meta, abstractHeading, abstract);
+  } catch (error) {
+    panel.replaceChildren(Object.assign(document.createElement('p'), {className: 'notice', textContent: error.message}));
+  }
+});
+{% endif %}
 </script>
 {% endblock %}

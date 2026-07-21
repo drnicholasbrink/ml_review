@@ -9,4 +9,6 @@ plotly
 requests
 tqdm
 flask
+flask-wtf
+gunicorn
 pytest

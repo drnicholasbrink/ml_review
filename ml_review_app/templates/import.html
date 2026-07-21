@@ -2,9 +2,12 @@
 {% block title %}Import · ML Review{% endblock %}
 {% block content %}
 <h1>{{ manifest.name }} · CSV import</h1>
-{% if error %}<p class="notice">{{ error }}</p>{% endif %}
+<p class="page-intro">Use this path when records already exist outside PubMed. Uploading a replacement keeps earlier data until the new CSV has been validated.</p>
+{% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
 <form method="post" enctype="multipart/form-data" class="card stack">
-  <label>Upload CSV <input type="file" name="csv_file" accept=".csv"></label>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Upload CSV <input type="file" name="csv_file" accept=".csv,text/csv" required></label>
+  <small>The file must contain a header row and may be up to {{ config.MAX_CONTENT_LENGTH // 1048576 }} MB.</small>
   <button type="submit">Upload and preview</button>
 </form>
 {% if columns %}
@@ -12,8 +15,9 @@
   <h2>Column mapping</h2>
   {% if profile %}<p>{{ profile.rows }} rows · {{ profile.columns|length }} columns</p>{% endif %}
   <form method="post" action="{{ url_for('imports.map_columns', project_id=manifest.project_id) }}" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     {% for canonical in canonical_columns %}
-      <label>{{ canonical }}{% if canonical == 'RecordID' %} (required unique ID){% endif %}
+      <label>{{ canonical }}{% if canonical == 'RecordID' %} (required unique ID){% elif canonical in ['Title', 'Abstract'] %} (map at least one){% endif %}
         <select name="{{ canonical }}">
           <option value="">-- not mapped --</option>
           {% for column in columns %}<option value="{{ column }}">{{ column }}</option>{% endfor %}

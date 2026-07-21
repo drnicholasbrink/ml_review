@@ -2,7 +2,30 @@
 {% block title %}Screening · ML Review{% endblock %}
 {% block content %}
 <h1>{{ manifest.name }} · AI screening</h1>
-<section class="card"><h2>Criteria</h2><pre>{{ criteria }}</pre><form method="post"><button type="submit">Run demo screening</button></form></section>
+{% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+<p class="notice">AI screening is decision support only. A human reviewer must review all uncertain and low-confidence decisions before making final inclusion decisions.</p>
+<section class="card stack">
+  <h2>Criteria</h2>
+  <pre>{{ criteria }}</pre>
+  <form method="post" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>
+      <span class="label-with-help">OpenAI API key <a class="info-link" href="https://help.openai.com/en/articles/4936850-where-do-i-find-my-openai-api-key" target="_blank" rel="noopener" aria-label="How to create an OpenAI API key">i</a></span>
+      <input type="password" name="openai_api_key" maxlength="512" autocomplete="off" placeholder="{% if fallback_available %}Configured key available{% else %}Enter an OpenAI API key{% endif %}">
+      <small>The entered key is used for this request only and is never written to the project.</small>
+    </label>
+    <label>Screening model
+      <select name="model">
+        <option value="gpt-5.6-luna" {% if manifest.screening_model not in ['gpt-5.6-sol', 'gpt-5.6-terra'] %}selected{% endif %}>gpt-5.6-luna</option>
+        <option value="gpt-5.6-terra" {% if manifest.screening_model == 'gpt-5.6-terra' %}selected{% endif %}>gpt-5.6-terra</option>
+        <option value="gpt-5.6-sol" {% if manifest.screening_model == 'gpt-5.6-sol' %}selected{% endif %}>gpt-5.6-sol</option>
+      </select>
+    </label>
+    <label class="checkbox-label"><input type="checkbox" name="resume" checked> Resume records already screened with these criteria and this model</label>
+    <button type="submit" {% if not source_ready or not criteria %}disabled{% endif %}>Run OpenAI screening</button>
+  </form>
+  {% if not source_ready %}<p class="page-intro">Select or deduplicate records before screening.</p>{% endif %}
+</section>
 {% if manifest.screening_decision_counts %}<section class="card"><h2>Decision counts</h2><pre>{{ manifest.screening_decision_counts }}</pre><a class="button" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='ai_screening_full_results.csv') }}">Download screening CSV</a></section>{% endif %}
 {% if rows %}<section class="card"><h2>Preview</h2><pre>{{ rows }}</pre></section>{% endif %}
 {% endblock %}

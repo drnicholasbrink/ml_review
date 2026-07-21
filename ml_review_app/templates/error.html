@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · ML Review{% endblock %}
+{% block content %}
+<section class="card error-card">
+  <p class="eyebrow">Request error</p>
+  <h1>{{ title }}</h1>
+  <p>{{ message }}</p>
+  <a class="button secondary" href="{{ url_for('projects.projects_index') }}">Return to projects</a>
+</section>
+{% endblock %}
