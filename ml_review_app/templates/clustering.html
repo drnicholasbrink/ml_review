@@ -90,11 +90,13 @@
 {% endif %}
 
 <script>
+const plotConfig = {responsive: true, displaylogo: false};
+const responsiveLayout = layout => ({autosize:true, ...layout, xaxis:{automargin:true, ...layout.xaxis}, yaxis:{automargin:true, ...layout.yaxis}});
 {% if draft %}
-Plotly.newPlot('draft-elbow', [{x: {{ draft.elbow_scores|map(attribute='k')|list|tojson }}, y: {{ draft.elbow_scores|map(attribute='wcss')|list|tojson }}, mode: 'lines+markers', type: 'scatter', marker:{size:9}}], {title: 'WCSS before choosing K', xaxis:{title:'Candidate cluster count (K)',dtick:1}, yaxis:{title:'Within-cluster sum of squares'}, margin:{t:55}});
+Plotly.newPlot('draft-elbow', [{x: {{ draft.elbow_scores|map(attribute='k')|list|tojson }}, y: {{ draft.elbow_scores|map(attribute='wcss')|list|tojson }}, mode: 'lines+markers', type: 'scatter', marker:{size:9}}], responsiveLayout({title: 'WCSS before choosing K', xaxis:{title:'Candidate cluster count (K)',dtick:1}, yaxis:{title:'Within-cluster sum of squares'}, margin:{t:55}}), plotConfig);
 {% endif %}
 {% if scores %}
-Plotly.newPlot('active-elbow', [{x: {{ scores|map(attribute='k')|list|tojson }}, y: {{ scores|map(attribute='wcss')|list|tojson }}, mode: 'lines+markers', type: 'scatter'}], {title: 'Saved WCSS analysis', xaxis:{title:'K',dtick:1}, yaxis:{title:'WCSS'}, margin:{t:55}});
+Plotly.newPlot('active-elbow', [{x: {{ scores|map(attribute='k')|list|tojson }}, y: {{ scores|map(attribute='wcss')|list|tojson }}, mode: 'lines+markers', type: 'scatter'}], responsiveLayout({title: 'Saved WCSS analysis', xaxis:{title:'K',dtick:1}, yaxis:{title:'WCSS'}, margin:{t:55}}), plotConfig);
 {% endif %}
 {% if rows %}
 const rows = {{ rows|tojson }};
@@ -108,7 +110,7 @@ Plotly.newPlot(scatter, [{
   type: 'scattergl',
   marker: {color: rows.map(row => row.Cluster), colorscale: 'Viridis', size: 10, opacity: 0.85},
   hovertemplate: '%{text}<br>Cluster %{marker.color}<extra></extra>'
-}], {title: 'Saved t-SNE coordinates', xaxis:{title:'t-SNE 1'}, yaxis:{title:'t-SNE 2'}, margin:{t:55}});
+}], responsiveLayout({title: 'Saved t-SNE coordinates', xaxis:{title:'t-SNE 1'}, yaxis:{title:'t-SNE 2'}, margin:{t:55}}), plotConfig);
 
 scatter.on('plotly_click', async event => {
   const pointId = event.points[0].customdata;
@@ -121,7 +123,7 @@ scatter.on('plotly_click', async event => {
     const heading = document.createElement('h2'); heading.textContent = record.Title || 'Untitled record';
     const meta = document.createElement('p'); meta.className = 'record-meta'; meta.textContent = [record.Authors, record.Journal, record.Date, record.PMID ? `PMID ${record.PMID}` : record.RecordID].filter(Boolean).join(' · ');
     const abstractHeading = document.createElement('h3'); abstractHeading.textContent = 'Abstract';
-    const abstract = document.createElement('p'); abstract.textContent = record.Abstract || 'No abstract was supplied.';
+    const abstract = document.createElement('p'); abstract.className = 'abstract-text'; abstract.textContent = record.Abstract || 'No abstract was supplied.';
     panel.replaceChildren(heading, meta, abstractHeading, abstract);
   } catch (error) {
     panel.replaceChildren(Object.assign(document.createElement('p'), {className: 'notice', textContent: error.message}));

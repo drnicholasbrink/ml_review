@@ -29,9 +29,11 @@
 </section>
 <section class="card">
   <h2>Preview</h2>
-  <table><thead><tr>{% for column in columns %}<th>{{ column }}</th>{% endfor %}</tr></thead><tbody>
-  {% for row in preview %}<tr>{% for column in columns %}<td>{{ row[column] }}</td>{% endfor %}</tr>{% endfor %}
-  </tbody></table>
+  <div class="table-scroll">
+    <table class="preview-table"><thead><tr>{% for column in columns %}<th>{{ column }}</th>{% endfor %}</tr></thead><tbody>
+    {% for row in preview %}<tr>{% for column in columns %}<td>{{ row[column] }}</td>{% endfor %}</tr>{% endfor %}
+    </tbody></table>
+  </div>
 </section>
 {% endif %}
 {% endblock %}

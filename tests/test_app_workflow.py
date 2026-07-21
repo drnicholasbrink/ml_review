@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from io import BytesIO
 from pathlib import Path
 
@@ -8,7 +9,7 @@ import pandas as pd
 from ml_review_app import create_app
 from ml_review_app.config import TestConfig
 from ml_review_app.services.clustering_service import load_clustering_state
-from ml_review_app.services.project_service import load_manifest
+from ml_review_app.services.project_service import load_manifest, save_manifest
 
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "review_records.csv"
@@ -393,3 +394,165 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
     assert "embeddings" not in manifest["files"]
     stale_download = client.get(f"/projects/{project_id}/exports/deduplicated_records.csv")
     assert stale_download.status_code == 404
+
+
+def test_long_content_renders_in_responsive_containers_without_truncation(tmp_path: Path):
+    app = make_app(tmp_path)
+    client = app.test_client()
+    project_id, setup_url = create_project(client)
+    project_path = tmp_path / "runtime" / "projects" / project_id
+    long_token = "unbroken" + "x" * 500
+    long_url = f"https://example.test/articles/{long_token}?source=systematic-review"
+    long_doi = f"10.1234/{long_token}"
+    long_title = f"A deliberately long title for responsive review tables {long_token} {long_url}"
+    long_abstract = f"First abstract paragraph with {long_doi}.\n\nSecond paragraph with {long_url}."
+    long_rationale = f"First rationale paragraph.\n\nSecond rationale paragraph contains {long_token}."
+    long_reason = f"outside_scope_{long_token}"
+
+    setup = client.post(
+        setup_url,
+        data={
+            "search_strategy": f'("pregnancy"[Title]) AND {long_token}',
+            "inclusion_criteria": f"Include relevant studies.\n\nIdentifier: {long_doi}",
+        },
+    )
+    assert setup.status_code == 302
+
+    long_column = f"source_{long_token}"
+    csv_bytes = pd.DataFrame([{long_column: long_url, "article_title": long_title, "doi": long_doi}]).to_csv(index=False).encode()
+    imported = client.post(
+        f"/projects/{project_id}/import",
+        data={"csv_file": (BytesIO(csv_bytes), f"review-export-{'f' * 120}.csv")},
+        content_type="multipart/form-data",
+    )
+    assert imported.status_code == 200
+    assert b'class="table-scroll"' in imported.data
+    assert b'class="preview-table"' in imported.data
+    assert long_column.encode() in imported.data
+    assert long_url.encode() in imported.data
+
+    screened = pd.DataFrame(
+        [
+            {
+                "RecordID": long_token,
+                "PMID": "12345678",
+                "Title": long_title,
+                "Abstract": long_abstract,
+                "DOI": long_doi,
+                "ai_decision": "exclude",
+                "ai_confidence": "low",
+                "ai_exclusion_reason": long_reason,
+                "ai_population_match": False,
+                "ai_exposure_match": True,
+                "ai_outcome_match": False,
+                "ai_study_design_appropriate": True,
+                "ai_reasoning": long_rationale,
+                "ai_input_truncated": False,
+                "TSNE_1": 0.5,
+                "TSNE_2": -0.5,
+            }
+        ]
+    )
+    screened.to_csv(project_path / "ai_screening_full_results.csv", index=False)
+    screened.to_csv(project_path / "deduplicated_records.csv", index=False)
+    comparison = pd.DataFrame(
+        [
+            {
+                "ai_title": long_title,
+                "ai_decision": "exclude",
+                "human_title": long_title,
+                "match_score": 100,
+                "match_status": f"matched_{long_token}",
+            }
+        ]
+    )
+    comparison.to_csv(project_path / "human_evaluation_comparison.csv", index=False)
+    manifest = load_manifest(project_path)
+    manifest["files"].update(
+        {
+            "deduplicated_records": "deduplicated_records.csv",
+            "ai_screening_full_results": "ai_screening_full_results.csv",
+            "human_evaluation_comparison": "human_evaluation_comparison.csv",
+        }
+    )
+    manifest["screening_decision_counts"] = {"exclude": 1}
+    manifest["human_evaluation"] = {
+        "human_file_type": "full decisions",
+        "matched_records": 1,
+        "match_coverage": 1.0,
+        "sensitivity": None,
+        "precision": None,
+        "f1_score": None,
+        "specificity": 1.0,
+        "match_threshold": 85,
+        "uncertain_is_positive": True,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "true_negatives": 1,
+    }
+    save_manifest(project_path, manifest)
+
+    screening_page = client.get(f"/projects/{project_id}/screening")
+    assert screening_page.status_code == 200
+    assert b'class="data-table screening-table"' in screening_page.data
+    assert b'class="col-instrument" span="4"' in screening_page.data
+    assert long_title.encode() in screening_page.data
+    assert long_rationale.encode() in screening_page.data
+    assert long_doi.encode() in screening_page.data
+
+    evaluation_page = client.get(f"/projects/{project_id}/evaluation")
+    assert evaluation_page.status_code == 200
+    assert b'class="data-table comparison-table"' in evaluation_page.data
+    assert long_title.encode() in evaluation_page.data
+    assert f"matched_{long_token}".encode() in evaluation_page.data
+    assert b"automargin:true" in evaluation_page.data
+
+    run_id = f"run_{long_token}"
+    run_output = Path("visualizations/clustering_runs/long-content.csv")
+    (project_path / run_output).parent.mkdir(parents=True, exist_ok=True)
+    clustered = screened.assign(PointID=long_token, Cluster=0)
+    clustered.to_csv(project_path / run_output, index=False)
+    state = {
+        "active_run_id": run_id,
+        "draft": None,
+        "runs": [
+            {
+                "run_id": run_id,
+                "parent_run_id": None,
+                "depth": 0,
+                "row_count": 1,
+                "n_clusters": 1,
+                "output_file": str(run_output),
+                "selected_parent_clusters": [],
+                "method": f"projection_{long_token}",
+                "perplexity": None,
+                "random_state": 42,
+                "sklearn_version": "test",
+                "elbow_scores": [{"k": 1, "wcss": 0.0}],
+            }
+        ],
+    }
+    (project_path / "clustering_state.json").write_text(json.dumps(state))
+    manifest = load_manifest(project_path)
+    manifest["files"]["embeddings"] = "deduplicated_records.csv"
+    manifest["files"]["labeled_clusters"] = str(run_output)
+    manifest["active_clustering_run"] = run_id
+    save_manifest(project_path, manifest)
+
+    clustering_page = client.get(f"/projects/{project_id}/clustering")
+    assert clustering_page.status_code == 200
+    assert run_id.encode() in clustering_page.data
+    assert b"abstract.className = 'abstract-text'" in clustering_page.data
+    assert b"automargin:true" in clustering_page.data
+    point = client.get(f"/projects/{project_id}/clustering/points/{long_token}")
+    assert point.status_code == 200
+    assert point.json["Abstract"] == long_abstract
+    assert point.json["DOI"] == long_doi
+
+    css = client.get("/static/css/app.css")
+    assert css.status_code == 200
+    assert b"overflow-wrap: anywhere" in css.data
+    assert b"white-space: pre-wrap" in css.data
+    assert b"position: sticky" in css.data
+    assert b"@media (max-width: 520px)" in css.data

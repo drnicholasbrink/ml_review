@@ -1,6 +1,10 @@
 :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 * { box-sizing: border-box; }
 body { margin: 0; background: #f6f8fb; color: #162033; line-height: 1.5; }
+.container, .workflow-content, section, article, aside, form, label, .card, .workflow-card, .run-card { min-width: 0; }
+h1, h2, h3, h4, p, pre, code, label, .notice, .workflow-link, .workflow-card, .run-card, .branch-title, .status-pill, .decision-badge, th, td { overflow-wrap: anywhere; hyphens: auto; }
+pre { max-width: 100%; margin: 0; white-space: pre-wrap; word-break: break-word; }
+code { white-space: break-spaces; word-break: break-word; }
 .topbar { display: flex; justify-content: space-between; align-items: center; padding: 1rem 2rem; background: #0f172a; color: white; }
 .topbar a { color: white; text-decoration: none; margin-left: 1rem; }
 .brand { font-weight: 800; letter-spacing: .02em; }
@@ -45,31 +49,33 @@ body { margin: 0; background: #f6f8fb; color: #162033; line-height: 1.5; }
 .checkbox-label input { width: auto; }
 .form-inline { display: flex; gap: 1rem; align-items: end; flex-wrap: wrap; }
 label { display: grid; gap: .35rem; font-weight: 700; }
-input, textarea, select { border: 1px solid #cbd5e1; border-radius: 12px; padding: .75rem; font: inherit; }
-textarea { width: 100%; box-sizing: border-box; }
+input, textarea, select { min-width: 0; max-width: 100%; border: 1px solid #cbd5e1; border-radius: 12px; padding: .75rem; font: inherit; }
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select { overflow-x: auto; }
+textarea { width: 100%; min-height: 8rem; resize: vertical; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 label small { color: #64748b; font-weight: 500; }
 .form-actions { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
-button, .button { display: inline-block; border: 0; border-radius: 999px; background: #2563eb; color: white; padding: .8rem 1.15rem; font: inherit; font-weight: 800; line-height: 1.2; text-align: center; text-decoration: none; cursor: pointer; }
+button, .button { display: inline-block; max-width: 100%; border: 0; border-radius: 999px; background: #2563eb; color: white; padding: .8rem 1.15rem; font: inherit; font-weight: 800; line-height: 1.2; text-align: center; text-decoration: none; white-space: normal; overflow-wrap: anywhere; cursor: pointer; }
 button.secondary, .button.secondary { background: #475569; }
 button:disabled, .button.disabled { color: #94a3b8; background: #e2e8f0; cursor: not-allowed; }
 table { width: 100%; border-collapse: collapse; }
-th, td { border-bottom: 1px solid #e5e7eb; padding: .6rem; text-align: left; vertical-align: top; }
+th, td { border-bottom: 1px solid #e5e7eb; padding: .65rem; text-align: left; vertical-align: top; }
 .notice { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; padding: 1rem; border-radius: 14px; }
 .error-card { max-width: 680px; margin: 3rem auto; }
 .run-history { display: grid; gap: .75rem; }
-.run-card { position: relative; display: grid; gap: .4rem; margin-left: calc(var(--branch-depth) * 2rem); padding: 1rem; border: 1px solid #cbd5e1; border-radius: 14px; background: #f8fafc; }
+.run-card { position: relative; display: grid; gap: .4rem; max-width: 100%; margin-left: calc(var(--branch-depth) * 2rem); padding: 1rem; border: 1px solid #cbd5e1; border-radius: 14px; background: #f8fafc; }
 .run-card::before { content: ''; position: absolute; left: -1.15rem; top: -1rem; bottom: 50%; width: .9rem; border-left: 2px solid #cbd5e1; border-bottom: 2px solid #cbd5e1; border-bottom-left-radius: 8px; }
 .run-card[style*="--branch-depth: 0"]::before { display: none; }
 .run-card.active { border-color: #2563eb; background: #eff6ff; }
 .run-card span, .run-card small { color: #475569; }
-.branch-title { display: flex; align-items: center; gap: .5rem; }
+.branch-title { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
 .branch-node { color: #2563eb !important; font-size: 1.2rem; }
 .wcss-choice { border: 2px solid #2563eb; box-shadow: 0 14px 35px rgba(37,99,235,.13); }
 .choose-k-form { padding-top: 1rem; border-top: 1px solid #dbeafe; }
 .section-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
 .section-heading h2 { margin-top: 0; }
 .explorer-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); gap: 1rem; }
-.point-details { max-height: 650px; overflow: auto; }
+.point-details { max-height: 650px; overflow: auto; overscroll-behavior: contain; }
+.abstract-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .record-meta { color: #475569; }
 .action-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
 .cluster-options { display: flex; flex-wrap: wrap; gap: .65rem 1rem; }
@@ -80,11 +86,27 @@ th, td { border-bottom: 1px solid #e5e7eb; padding: .6rem; text-align: left; ver
 .summary-card.include { border-color: #86efac; background: #f0fdf4; }
 .summary-card.uncertain { border-color: #fdba74; background: #fff7ed; }
 .summary-card.exclude { border-color: #fca5a5; background: #fef2f2; }
-.table-scroll { width: 100%; overflow-x: auto; }
-.data-table { min-width: 980px; }
+.table-scroll { width: 100%; max-width: 100%; max-height: min(70vh, 48rem); overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.table-scroll table { table-layout: fixed; }
+.table-scroll thead th { position: sticky; top: 0; z-index: 1; background: #f8fafc; box-shadow: 0 1px 0 #cbd5e1; }
+.table-scroll tbody tr:nth-child(even) { background: #f8fafc; }
+.table-scroll tbody tr:hover { background: #eff6ff; }
+.data-table { min-width: 760px; }
+.screening-table { min-width: 860px; }
+.screening-table .col-record { width: 27%; }
+.screening-table .col-decision { width: 10%; }
+.screening-table .col-confidence { width: 10%; }
+.screening-table .col-instrument { width: 6%; }
+.screening-table .col-rationale { width: 29%; }
+.comparison-table { min-width: 700px; }
+.comparison-table .col-title { width: 31%; }
+.comparison-table .col-decision, .comparison-table .col-score, .comparison-table .col-status { width: 12.666%; }
+.preview-table { width: max-content; min-width: 100%; table-layout: auto !important; }
+.preview-table th, .preview-table td { min-width: 8rem; max-width: 22rem; }
 .data-table td small { display: block; margin-top: .25rem; color: #64748b; }
-.data-table details { margin-top: .4rem; max-width: 420px; }
+.data-table details { max-width: 100%; margin-top: .4rem; }
 .data-table summary { color: #2563eb; cursor: pointer; font-weight: 700; }
+.data-table details p { max-height: 18rem; overflow-y: auto; white-space: pre-wrap; overscroll-behavior: contain; }
 .table-search { min-width: min(320px, 100%); }
 .table-sort { padding: 0; border-radius: 0; color: inherit; background: transparent; text-align: left; }
 .table-sort:hover { color: #2563eb; }
@@ -99,8 +121,10 @@ th, td { border-bottom: 1px solid #e5e7eb; padding: .6rem; text-align: left; ver
 .chart-card { min-width: 0; }
 .chart-card h2 { margin-bottom: .25rem; }
 .chart-wide { grid-column: 1 / -1; }
+.plot, #draft-elbow, #active-elbow, #scatter { width: 100%; min-width: 0; }
 .plot { min-height: 390px; }
 .plot-tall { min-height: 650px; }
+.js-plotly-plot, .plot-container, .svg-container { max-width: 100% !important; }
 
 @media (max-width: 860px) {
   .topbar { padding: 1rem; }
@@ -113,4 +137,15 @@ th, td { border-bottom: 1px solid #e5e7eb; padding: .6rem; text-align: left; ver
   .evaluation-grid { grid-template-columns: 1fr; }
   .chart-wide { grid-column: auto; }
   .run-card { margin-left: calc(var(--branch-depth) * .8rem); }
+  .data-table { min-width: 680px; }
+  .screening-table { min-width: 800px; }
+}
+
+@media (max-width: 520px) {
+  .topbar { align-items: flex-start; flex-direction: column; gap: .5rem; }
+  .topbar a { margin: 0 1rem 0 0; }
+  .workflow-nav { grid-template-columns: minmax(0, 1fr); }
+  .grid, .workflow-cards, .action-grid, .summary-cards { grid-template-columns: minmax(0, 1fr); }
+  .page-heading, .workflow-card-topline { flex-wrap: wrap; }
+  .run-card { margin-left: calc(var(--branch-depth) * .35rem); }
 }

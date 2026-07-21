@@ -46,7 +46,14 @@
     <label class="table-search">Search <input id="screening-search" type="search" placeholder="Title, ID, decision, reason…"></label>
   </div>
   <div class="table-scroll">
-    <table id="screening-table" class="data-table">
+    <table id="screening-table" class="data-table screening-table">
+      <colgroup>
+        <col class="col-record">
+        <col class="col-decision">
+        <col class="col-confidence">
+        <col class="col-instrument" span="4">
+        <col class="col-rationale">
+      </colgroup>
       <thead><tr><th><button type="button" class="table-sort" data-column="0">Record ↕</button></th><th><button type="button" class="table-sort" data-column="1">Decision ↕</button></th><th><button type="button" class="table-sort" data-column="2">Confidence ↕</button></th><th>Population</th><th>Exposure</th><th>Outcome</th><th>Design</th><th><button type="button" class="table-sort" data-column="7">Reason and rationale ↕</button></th></tr></thead>
       <tbody>
       {% for row in rows %}
