@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, current_app, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 
-from ..services.project_service import create_project, invalidate_outputs, list_projects, project_dir, load_manifest, save_manifest
+from ..services.project_service import (
+    create_project,
+    delete_project,
+    invalidate_outputs,
+    list_projects,
+    load_manifest,
+    project_dir,
+    save_manifest,
+)
+from ..services.task_service import TaskConflictError
 from ..services.validation_service import validate_text
 from ..services.workflow_service import build_workflow_steps
 
@@ -38,6 +47,47 @@ def dashboard(project_id: str):
     manifest = load_manifest(path)
     steps = build_workflow_steps(path, manifest)
     return render_template("project_dashboard.html", manifest=manifest, workflow_steps=steps)
+
+
+@bp.get("/<project_id>/delete")
+def project_delete_confirmation(project_id: str):
+    path = project_dir(current_app.config["RUNTIME_DIR"], project_id)
+    manifest = load_manifest(path)
+    return render_template("project_delete.html", manifest=manifest, error=None)
+
+
+@bp.post("/<project_id>/delete")
+def project_delete(project_id: str):
+    runtime_dir = current_app.config["RUNTIME_DIR"]
+    path = project_dir(runtime_dir, project_id)
+    manifest = load_manifest(path)
+    confirmation = request.form.get("confirmation", "")
+    if confirmation != manifest["name"]:
+        return render_template(
+            "project_delete.html",
+            manifest=manifest,
+            error="Enter the project name exactly as shown to confirm permanent deletion.",
+        ), 400
+    try:
+        current_app.extensions["task_manager"].run_project_exclusive(
+            path,
+            lambda: delete_project(runtime_dir, project_id),
+        )
+    except TaskConflictError as exc:
+        return render_template(
+            "error.html",
+            title="Background task running",
+            message=f"{exc}. Wait for it to finish before deleting this project.",
+        ), 409
+    except (OSError, ValueError):
+        current_app.logger.exception("Could not delete project %s", project_id)
+        return render_template(
+            "project_delete.html",
+            manifest=manifest,
+            error="Deletion could not be completed. Some project files may remain; check the application logs before retrying.",
+        ), 500
+    flash(f'Deleted "{manifest["name"]}" and all associated project data.')
+    return redirect(url_for("projects.projects_index"))
 
 
 @bp.route("/<project_id>/setup", methods=["GET", "POST"])

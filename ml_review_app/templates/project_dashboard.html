@@ -10,6 +10,7 @@
   <div class="stack">
     <code>{{ manifest.project_id }}</code>
     <a class="button secondary" href="{{ url_for('exports.publication_bundle', project_id=manifest.project_id) }}">Download publication bundle</a>
+    <a class="button danger" href="{{ url_for('projects.project_delete_confirmation', project_id=manifest.project_id) }}">Delete project…</a>
   </div>
 </div>
 

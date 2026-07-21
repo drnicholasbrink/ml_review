@@ -8,7 +8,7 @@ import pytest
 
 from ml_review_app import create_app
 from ml_review_app.config import TestConfig
-from ml_review_app.services.project_service import create_project
+from ml_review_app.services.project_service import create_project, delete_project
 from ml_review_app.services.task_service import (
     TaskConflictError,
     TaskManager,
@@ -143,6 +143,15 @@ def test_async_task_is_visible_while_running_and_serializes_project_work(tmp_pat
     blocked = app.test_client().post(f"/projects/{manifest['project_id']}/setup", data={})
     assert blocked.status_code == 409
     assert b"Wait for it to finish" in blocked.data
+    delete_page = app.test_client().get(f"/projects/{manifest['project_id']}/delete")
+    assert b"Deletion is unavailable while Async fixture is running" in delete_page.data
+    assert b'type="submit" disabled' in delete_page.data
+    blocked_delete = app.test_client().post(
+        f"/projects/{manifest['project_id']}/delete",
+        data={"confirmation": "Async review"},
+    )
+    assert blocked_delete.status_code == 409
+    assert project_path.is_dir()
 
     release.set()
     for _ in range(100):
@@ -151,3 +160,24 @@ def test_async_task_is_visible_while_running_and_serializes_project_work(tmp_pat
         threading.Event().wait(0.01)
     assert load_task(project_path, task["task_id"])["state"] == "succeeded"
     assert len(list_tasks(project_path)) == 1
+
+
+def test_task_submission_refuses_a_deleted_project(tmp_path: Path):
+    app = make_app(tmp_path)
+    manifest = create_project(app.config["RUNTIME_DIR"], "Deleted review")
+    project_path = app.config["RUNTIME_DIR"] / "projects" / manifest["project_id"]
+    app.extensions["task_manager"].run_project_exclusive(
+        project_path,
+        lambda: delete_project(app.config["RUNTIME_DIR"], manifest["project_id"]),
+    )
+
+    with pytest.raises(FileNotFoundError, match="Project not found"):
+        app.extensions["task_manager"].submit(
+            project_path,
+            kind="fixture",
+            title="Late task",
+            target=lambda _progress: None,
+            result_url="/projects",
+            failure_message="Late task failed",
+        )
+    assert not project_path.exists()
