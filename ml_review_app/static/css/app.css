@@ -42,6 +42,7 @@ code { white-space: break-spaces; word-break: break-word; }
 .status-pill.available { color: #1d4ed8; background: #dbeafe; }
 .status-pill.complete { color: #047857; background: #d1fae5; }
 .status-pill.blocked { color: #64748b; background: #e2e8f0; }
+.status-pill.attention { color: #9a3412; background: #ffedd5; }
 .stack { display: grid; gap: 1rem; }
 .label-with-help { display: inline-flex; align-items: center; gap: 0.45rem; }
 .info-link { display: inline-grid; place-items: center; width: 1.2rem; height: 1.2rem; border: 1px solid currentColor; border-radius: 50%; font-size: 0.78rem; font-weight: 700; line-height: 1; text-decoration: none; }
@@ -121,7 +122,18 @@ th, td { border-bottom: 1px solid #e5e7eb; padding: .65rem; text-align: left; ve
 .screening-table .col-confidence { width: 10%; }
 .screening-table .col-instrument { width: 6%; }
 .screening-table .col-rationale { width: 29%; }
+.review-table { min-width: 1280px; }
+.review-table .col-record { width: 20%; }
+.review-table .col-rationale { width: 20%; }
+.review-table .col-review { width: 22%; }
+.review-form { display: grid; gap: .65rem; }
+.review-form textarea { min-height: 5rem; }
+.review-form button { justify-self: start; padding: .55rem .85rem; }
+.review-filter-form { display: flex; align-items: end; flex-wrap: wrap; gap: .75rem; }
+.review-filter-form label { min-width: min(220px, 100%); }
+.pagination { display: flex; align-items: center; justify-content: center; gap: 1rem; margin-top: 1rem; }
 .comparison-table { min-width: 700px; }
+.extraction-table { min-width: 1050px; }
 .comparison-table .col-title { width: 31%; }
 .comparison-table .col-decision, .comparison-table .col-score, .comparison-table .col-status { width: 12.666%; }
 .preview-table { width: max-content; min-width: 100%; table-layout: auto !important; }

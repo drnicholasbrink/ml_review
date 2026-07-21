@@ -6,10 +6,13 @@ This repository contains a notebook-first workflow for machine-learning-assisted
 
 The project is intentionally organized around manually run notebooks rather than a single automated pipeline. Long-running steps call external APIs, produce large intermediate files, and require human validation.
 
+An accompanying localhost web workflow covers the same review lifecycle with resumable project state, an Evidence Atlas, human screening adjudication, evaluation, structured extraction, and a publication handoff bundle. See [README_FLASK_APP.md](README_FLASK_APP.md) for operation and [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) for the validated deployment boundary and scientific safeguards.
+
 ## Repository layout
 
 - `environment.yml` — Conda environment definition for the notebook stack.
 - `requirements_.txt` — pip-style dependency list mirroring the Python packages in the Conda environment.
+- `requirements_app.lock` — exact tested Python dependency set used by the Docker web application.
 - `.gitignore` — excludes secrets, logs, caches, and generated PubMed CSVs.
 - `scripts/search_strategy.txt` — PubMed query string used by the search notebook.
 - `scripts/inclusion_criteria.txt` — criteria used by the AI screening notebook.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import zipfile
 from io import BytesIO
 from pathlib import Path
 
@@ -35,6 +36,14 @@ def test_pages_and_prerequisite_messages(tmp_path: Path):
 
     assert client.get("/").status_code == 200
     assert client.get("/health").json == {"status": "ok"}
+    assert client.get("/ready").json == {"status": "ready", "runtime_writable": True}
+    plotly_bundle = client.get("/vendor/plotly.min.js")
+    assert plotly_bundle.status_code == 200
+    assert plotly_bundle.mimetype == "text/javascript"
+    home = client.get("/")
+    assert b"cdn.plot.ly" not in home.data
+    assert home.headers["X-Content-Type-Options"] == "nosniff"
+    assert "frame-ancestors 'none'" in home.headers["Content-Security-Policy"]
     assert client.get("/projects").status_code == 200
     too_long_name = client.post("/projects", data={"name": "x" * 201})
     assert too_long_name.status_code == 400
@@ -46,6 +55,10 @@ def test_pages_and_prerequisite_messages(tmp_path: Path):
     assert b"Project overview" in dashboard.data
     assert b"Add a search strategy in Review setup" in dashboard.data
     assert b"CSV import" in dashboard.data
+    bundle = client.get(f"/projects/{project_id}/exports/publication-bundle.zip")
+    assert bundle.status_code == 200
+    with zipfile.ZipFile(BytesIO(bundle.data)) as archive:
+        assert {"audit_manifest.json", "README.txt"} <= set(archive.namelist())
 
     setup_page = client.get(setup_url)
     assert b"Save and continue to PubMed" in setup_page.data
@@ -196,6 +209,78 @@ def test_pubmed_count_preserves_the_approved_fetch_scope(tmp_path: Path, monkeyp
     )
     manifest = load_manifest(tmp_path / "runtime" / "projects" / project_id)
     assert "last_pubmed_parameters" not in manifest
+
+
+def test_extraction_route_runs_a_resumable_test_and_exposes_exports(tmp_path: Path, monkeypatch):
+    app = make_app(tmp_path)
+    client = app.test_client()
+    project_id, setup_url = create_project(client)
+    client.post(
+        setup_url,
+        data={
+            "search_strategy": "pregnancy AND heat",
+            "inclusion_criteria": "Include primary pregnancy heat studies.",
+        },
+    )
+    project_path = tmp_path / "runtime" / "projects" / project_id
+    screened = pd.DataFrame(
+        {
+            "RecordID": ["one", "two"],
+            "PMID": ["1", "2"],
+            "Title": ["Included study", "Excluded study"],
+            "Abstract": ["Included abstract", "Excluded abstract"],
+            "ai_decision": ["include", "exclude"],
+            "ai_confidence": ["high", "high"],
+        }
+    )
+    screened.to_csv(project_path / "ai_screening_full_results.csv", index=False)
+    manifest = load_manifest(project_path)
+    manifest["files"]["ai_screening_full_results"] = "ai_screening_full_results.csv"
+    save_manifest(project_path, manifest)
+
+    def fake_extract(_source, _criteria, output, **_kwargs):
+        result = screened.iloc[[0]].copy()
+        result["extraction_record_key"] = "recordid:one"
+        result["country"] = "South Africa"
+        result["study_design"] = "cohort"
+        result["sample_size"] = "1,000"
+        result["extraction_confidence"] = "medium"
+        result["data_completeness"] = "partial"
+        result["key_finding_summary"] = "Heat exposure was associated with miscarriage."
+        result["effect_estimates"] = '[{"estimate_type":"odds ratio","value":"1.20"}]'
+        result["notes"] = "Validate against full text."
+        result["extraction_json"] = '{"population_description":"Pregnant participants","location":{"country":"South Africa"}}'
+        result["extraction_model"] = "gpt-5.6-luna"
+        result["extraction_timestamp"] = "2026-07-21T00:00:00+00:00"
+        result["text_source"] = "abstract"
+        result.to_csv(output, index=False)
+        return result, 1
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr("ml_review_app.blueprints.extraction.extract_csv", fake_extract)
+    page = client.get(f"/projects/{project_id}/extraction")
+    assert page.status_code == 200
+    assert b"1</strong><span>Eligible records" in page.data
+    response = client.post(
+        f"/projects/{project_id}/extraction",
+        data={"model": "gpt-5.6-luna", "scope": "test", "test_limit": "1", "resume": "on"},
+    )
+    assert response.status_code == 200
+    assert b"Extraction exports" in response.data
+    assert b"Validate against full text" in response.data
+    manifest = load_manifest(project_path)
+    assert manifest["extraction_rows"] == 1
+    assert manifest["files"]["effect_estimates"] == "effect_estimates.csv"
+    dashboard = client.get(f"/projects/{project_id}")
+    assert b"Extraction" in dashboard.data
+    assert b"Complete" in dashboard.data
+    bundle = client.get(f"/projects/{project_id}/exports/publication-bundle.zip")
+    with zipfile.ZipFile(BytesIO(bundle.data)) as archive:
+        names = set(archive.namelist())
+        assert "artifacts/ai_extraction_full_results.csv" in names
+        assert "artifacts/effect_estimates.csv" in names
+        audit = json.loads(archive.read("audit_manifest.json"))
+        assert audit["extraction_model"] == "gpt-5.6-luna"
 
 
 def test_cluster_search_route_is_read_only_validated_and_scoped_to_active_run(tmp_path: Path):
@@ -538,8 +623,8 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
         data={"model": "gpt-5.6-luna", "resume": "on"},
     )
     assert response.status_code == 200
-    assert b"Decision counts" in response.data
-    assert b"human reviewer" in response.data
+    assert b"Screening status" in response.data
+    assert b"Human adjudication queue" in response.data
     assert b'id="screening-table"' in response.data
     assert b"<pre>[{" not in response.data
 
@@ -547,6 +632,25 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
     assert len(screened) == 5
     assert set(screened["ai_decision"]) <= {"include", "exclude", "uncertain"}
     assert screened["ai_confidence"].notna().all()
+
+    screening_page = client.get(f"/projects/{project_id}/screening?review_filter=needs_review")
+    assert screening_page.status_code == 200
+    assert b"Required review pending" in screening_page.data
+    record_key = screening_page.data.split(b'name="record_key" value="', 1)[1].split(b'"', 1)[0].decode()
+    adjudicated = client.post(
+        f"/projects/{project_id}/screening",
+        data={
+            "action": "review", "record_key": record_key, "human_decision": "include",
+            "human_note": "Validated against the source text.", "review_filter": "all", "page": "1",
+        },
+        follow_redirects=True,
+    )
+    assert adjudicated.status_code == 200
+    assert b"Human screening decision saved" in adjudicated.data
+    reviewed = pd.read_csv(project_path / "human_screening_reviewed_results.csv")
+    assert reviewed["ai_decision"].notna().all()
+    assert reviewed["final_decision_source"].eq("human").sum() == 1
+    assert client.get(f"/projects/{project_id}/exports/human_screening_reviewed_results.csv").status_code == 200
 
     evaluation = client.get(f"/projects/{project_id}/evaluation")
     assert evaluation.status_code == 200
@@ -699,7 +803,7 @@ def test_long_content_renders_in_responsive_containers_without_truncation(tmp_pa
 
     screening_page = client.get(f"/projects/{project_id}/screening")
     assert screening_page.status_code == 200
-    assert b'class="data-table screening-table"' in screening_page.data
+    assert b'class="data-table screening-table review-table"' in screening_page.data
     assert b'class="col-instrument" span="4"' in screening_page.data
     assert long_title.encode() in screening_page.data
     assert long_rationale.encode() in screening_page.data

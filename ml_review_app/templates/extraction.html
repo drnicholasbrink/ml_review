@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Extraction · ML Review{% endblock %}
+{% block content %}
+<h1>{{ manifest.name }} · Structured extraction</h1>
+<p class="page-intro">Extract publication-oriented study characteristics and effect estimates from included abstracts with resumable OpenAI Structured Outputs.</p>
+{% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+<p class="notice">Abstract-only extraction is a starting point, not a publication-ready judgment. Validate a test sample against manual full-text extraction, then review every low-confidence or limited extraction before analysis.</p>
+
+<section class="card stack">
+  <div class="summary-cards">
+    <div class="summary-card"><strong>{{ candidate_count }}</strong><span>Eligible records</span></div>
+    <div class="summary-card"><strong>{{ manifest.extraction_rows or 0 }}</strong><span>Extracted records</span></div>
+    <div class="summary-card"><strong>{{ manifest.extraction_model or 'Not run' }}</strong><span>Last model</span></div>
+    <div class="summary-card"><strong>{{ 'Human' if manifest.files.human_screening_reviewed_results else 'AI' }}</strong><span>Decision source</span></div>
+  </div>
+  <p class="page-intro">Eligibility source: {{ decision_source_label }}. Human overrides take precedence while the original AI decision remains in every extraction row.</p>
+  {% if source_ready %}
+  <form method="post" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>
+      <span class="label-with-help">OpenAI API key <a class="info-link" href="https://help.openai.com/en/articles/4936850-where-do-i-find-my-openai-api-key" target="_blank" rel="noopener" aria-label="How to create an OpenAI API key">i</a></span>
+      <input type="password" name="openai_api_key" maxlength="512" autocomplete="off" placeholder="{% if fallback_available %}Configured key available{% else %}Enter an OpenAI API key{% endif %}">
+      <small>The entered key is used for this request only and is never written to the project.</small>
+    </label>
+    <div class="form-inline">
+      <label>Extraction model
+        <select name="model">
+          <option value="gpt-5.6-luna" {% if manifest.extraction_model not in ['gpt-5.6-sol', 'gpt-5.6-terra'] %}selected{% endif %}>gpt-5.6-luna</option>
+          <option value="gpt-5.6-terra" {% if manifest.extraction_model == 'gpt-5.6-terra' %}selected{% endif %}>gpt-5.6-terra</option>
+          <option value="gpt-5.6-sol" {% if manifest.extraction_model == 'gpt-5.6-sol' %}selected{% endif %}>gpt-5.6-sol</option>
+        </select>
+      </label>
+      <label>Run scope
+        <select name="scope">
+          <option value="test">Test sample first</option>
+          <option value="full">Full eligible set</option>
+        </select>
+      </label>
+      <label>Test records <input type="number" name="test_limit" min="1" max="25" value="{{ [candidate_count, 5] | min if candidate_count else 5 }}"></label>
+    </div>
+    <label class="checkbox-label"><input type="checkbox" name="include_uncertain" {% if include_uncertain %}checked{% endif %}> Include uncertain screening decisions</label>
+    <label class="checkbox-label"><input type="checkbox" name="resume" checked> Resume records already extracted with this model and schema</label>
+    <button type="submit">Run or resume structured extraction</button>
+  </form>
+  {% else %}<p class="page-intro">Run AI screening before starting extraction.</p>{% endif %}
+</section>
+
+{% if manifest.files.ai_extraction_full_results %}
+<section class="card stack">
+  <h2>Extraction exports</h2>
+  <div class="form-actions">
+    <a class="button" href="{{ url_for('exports.download', project_id=manifest.project_id, filename=manifest.files.ai_extraction_full_results) }}">Full extraction CSV</a>
+    <a class="button secondary" href="{{ url_for('exports.download', project_id=manifest.project_id, filename=manifest.files.ai_extraction_full_results_json) }}">Nested JSON</a>
+    <a class="button secondary" href="{{ url_for('exports.download', project_id=manifest.project_id, filename=manifest.files.study_characteristics) }}">Study characteristics</a>
+    <a class="button secondary" href="{{ url_for('exports.download', project_id=manifest.project_id, filename=manifest.files.effect_estimates) }}">Effect estimates</a>
+    <a class="button secondary" href="{{ url_for('exports.download', project_id=manifest.project_id, filename=manifest.files.extraction_summary) }}">Summary JSON</a>
+  </div>
+</section>
+{% endif %}
+
+{% if rows %}
+<section class="card">
+  <div class="section-heading"><div><h2>Extraction preview</h2><p class="page-intro">Showing up to 250 records. Review low-confidence and limited rows against the source text.</p></div><label class="table-search">Search <input id="extraction-search" type="search" placeholder="Title, country, design, finding…"></label></div>
+  <div class="table-scroll"><table id="extraction-table" class="data-table extraction-table"><thead><tr><th>Study</th><th>Location</th><th>Design</th><th>Sample</th><th>Quality</th><th>Effect estimates</th><th>Key finding and notes</th></tr></thead><tbody>
+  {% for row in rows %}<tr data-search="{{ [row.Title, row.country, row.study_design, row.sample_size, row.extraction_confidence, row.data_completeness, row.key_finding_summary, row.notes] | join(' ') | lower }}">
+    <td><strong>{{ row.Title or 'Untitled record' }}</strong><small>{{ row.PMID or row.RecordID }}</small></td><td>{{ row.country or 'Not reported' }}</td><td>{{ row.study_design }}</td><td>{{ row.sample_size or 'Not reported' }}</td><td><span class="decision-badge {{ 'include' if row.extraction_confidence == 'high' else ('uncertain' if row.extraction_confidence == 'medium' else 'exclude') }}">{{ row.extraction_confidence | title }}</span><small>{{ row.data_completeness | title }}</small></td><td>{{ row.effect_estimate_count }}</td><td>{{ row.key_finding_summary }}{% if row.notes %}<details><summary>Extraction notes</summary><p>{{ row.notes }}</p></details>{% endif %}</td>
+  </tr>{% endfor %}
+  </tbody></table></div>
+  <p id="extraction-table-count" class="page-intro"></p>
+</section>
+<script>
+const extractionSearch=document.getElementById('extraction-search');
+const extractionRows=[...document.querySelectorAll('#extraction-table tbody tr')];
+const extractionCount=document.getElementById('extraction-table-count');
+function filterExtractions(){const query=extractionSearch.value.trim().toLowerCase();let visible=0;extractionRows.forEach(row=>{const show=!query||row.dataset.search.includes(query);row.hidden=!show;if(show)visible+=1;});extractionCount.textContent=`${visible} of ${extractionRows.length} preview records shown`;}
+extractionSearch.addEventListener('input',filterExtractions);filterExtractions();
+</script>
+{% endif %}
+{% endblock %}

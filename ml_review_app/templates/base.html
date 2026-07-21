@@ -4,8 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}ML Review{% endblock %}</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
-  {% block head_scripts %}<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>{% endblock %}
+  {% block head_scripts %}<script src="{{ url_for('main.plotly_javascript') }}"></script>{% endblock %}
 </head>
 <body>
   <header class="topbar">
@@ -28,7 +29,7 @@
           {% if step.enabled %}
           <a href="{{ url_for(step.endpoint, project_id=manifest.project_id) }}" class="workflow-link{% if request.endpoint == step.endpoint %} active{% endif %}">
             <span class="step-number">{{ step.number }}</span>
-            <span><strong>{{ step.title }}</strong><small>{{ 'Complete' if step.complete else 'Available' }}</small></span>
+            <span><strong>{{ step.title }}</strong><small>{{ 'Review required' if step.attention else ('Complete' if step.complete else 'Available') }}</small></span>
           </a>
           {% else %}
           <span class="workflow-link disabled" aria-disabled="true" title="{{ step.blocked_reason }}">

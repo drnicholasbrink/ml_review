@@ -7,7 +7,10 @@
     <h1>{{ manifest.name }}</h1>
     <p class="page-intro">Open any available section directly. Steps that still need an earlier output are shown as unavailable.</p>
   </div>
-  <code>{{ manifest.project_id }}</code>
+  <div class="stack">
+    <code>{{ manifest.project_id }}</code>
+    <a class="button secondary" href="{{ url_for('exports.publication_bundle', project_id=manifest.project_id) }}">Download publication bundle</a>
+  </div>
 </div>
 
 <div class="workflow-cards">
@@ -15,8 +18,8 @@
   <article class="workflow-card{% if not step.enabled %} disabled{% endif %}">
     <div class="workflow-card-topline">
       <span class="step-number">{{ step.number }}</span>
-      <span class="status-pill {{ 'complete' if step.complete else ('blocked' if not step.enabled else 'available') }}">
-        {{ 'Complete' if step.complete else ('Waiting' if not step.enabled else 'Available') }}
+      <span class="status-pill {{ 'attention' if step.attention else ('complete' if step.complete else ('blocked' if not step.enabled else 'available')) }}">
+        {{ 'Review required' if step.attention else ('Complete' if step.complete else ('Waiting' if not step.enabled else 'Available')) }}
       </span>
     </div>
     <h2>{{ step.title }}</h2>

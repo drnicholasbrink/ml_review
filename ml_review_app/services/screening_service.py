@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -12,6 +13,7 @@ from openai import OpenAI
 from pydantic import BaseModel, Field
 
 MAX_SCREENING_RECORD_LENGTH = 100_000
+HUMAN_REVIEW_COLUMNS = ["record_key", "human_decision", "human_note", "human_reviewed_at"]
 
 
 class ScreeningDecision(BaseModel):
@@ -34,6 +36,74 @@ def _configuration_hash(criteria: str, model: str) -> str:
 def _record_identifier(row: pd.Series, index: int) -> str:
     value = row.get("RecordID", index)
     return str(index if pd.isna(value) else value)
+
+
+def screening_record_key(row: pd.Series, index: int) -> str:
+    """Return a stable, non-identifying key for a screening row."""
+
+    identity = {
+        "record_id": "" if pd.isna(row.get("RecordID")) else str(row.get("RecordID", "")),
+        "pmid": "" if pd.isna(row.get("PMID")) else str(row.get("PMID", "")),
+        "doi": "" if pd.isna(row.get("DOI")) else str(row.get("DOI", "")),
+        "title": "" if pd.isna(row.get("Title")) else str(row.get("Title", "")),
+        "row": index,
+    }
+    return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:24]
+
+
+def apply_human_reviews(screening_df: pd.DataFrame, reviews_df: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Overlay human decisions while retaining the complete AI audit trail."""
+
+    result = screening_df.reset_index(drop=True).copy()
+    result["record_key"] = [screening_record_key(row, index) for index, row in result.iterrows()]
+    review_lookup: dict[str, dict[str, Any]] = {}
+    if reviews_df is not None and not reviews_df.empty and "record_key" in reviews_df:
+        review_lookup = reviews_df.drop_duplicates("record_key", keep="last").set_index("record_key").to_dict(orient="index")
+    for column in HUMAN_REVIEW_COLUMNS[1:]:
+        result[column] = result["record_key"].map(lambda key: review_lookup.get(key, {}).get(column))
+    reviewed = result["human_decision"].fillna("").isin({"include", "exclude", "uncertain"})
+    result["final_decision"] = result["human_decision"].where(reviewed, result["ai_decision"])
+    result["final_decision_source"] = reviewed.map({True: "human", False: "ai"})
+    result["requires_human_review"] = (
+        result["ai_decision"].fillna("").eq("uncertain")
+        | result["ai_confidence"].fillna("").eq("low")
+    ) & ~reviewed
+    return result
+
+
+def save_human_review(
+    screening_csv: Path,
+    reviews_csv: Path,
+    reviewed_results_csv: Path,
+    *,
+    record_key: str,
+    decision: str,
+    note: str,
+) -> pd.DataFrame:
+    """Upsert or clear one human decision and rebuild the reviewed export."""
+
+    if decision not in {"", "include", "exclude", "uncertain"}:
+        raise ValueError("Choose include, exclude, uncertain, or clear the review")
+    screening = pd.read_csv(screening_csv)
+    keyed = apply_human_reviews(screening)
+    if record_key not in set(keyed["record_key"]):
+        raise ValueError("The screening record is no longer available")
+    if reviews_csv.exists():
+        reviews = pd.read_csv(reviews_csv, dtype=str).fillna("")
+    else:
+        reviews = pd.DataFrame(columns=HUMAN_REVIEW_COLUMNS)
+    reviews = reviews.loc[reviews["record_key"] != record_key].copy()
+    if decision:
+        reviews.loc[len(reviews)] = {
+            "record_key": record_key,
+            "human_decision": decision,
+            "human_note": note.strip(),
+            "human_reviewed_at": datetime.now(timezone.utc).isoformat(),
+        }
+    reviews.to_csv(reviews_csv, index=False)
+    reviewed = apply_human_reviews(screening, reviews)
+    reviewed.to_csv(reviewed_results_csv, index=False)
+    return reviewed
 
 
 def truncate_screening_record(title: str, abstract: str) -> tuple[str, str, bool, int]:
