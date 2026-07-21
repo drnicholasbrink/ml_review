@@ -28,12 +28,10 @@ ML_REVIEW_PORT=5055 docker compose up --build
 
 ```bash
 pip install -r requirements_.txt
-npm ci
-npm run build:atlas
 flask --app wsgi:app run --debug
 ```
 
-The local frontend build requires Node.js 22. Docker builds the pinned Atlas bundle automatically and installs the exact tested Python set from `requirements_app.lock`; notebook/development setup continues to use `environment.yml` or `requirements_.txt`.
+The Evidence Atlas uses a browser-native Canvas 2D viewer backed by server-computed UMAP coordinates, so no Node.js, WebAssembly worker, WebGL, or live Jupyter kernel is required. Docker installs the exact tested Python set from `requirements_app.lock`; notebook/development setup continues to use `environment.yml` or `requirements_.txt`.
 
 ## Workflow
 
@@ -41,7 +39,7 @@ The local frontend build requires Node.js 22. Docker builds the pinned Atlas bun
 - Save a PubMed search strategy and inclusion/exclusion criteria.
 - Fetch real PubMed records, or upload, map, normalize, and deduplicate a CSV.
 - Generate resumable OpenAI embeddings.
-- Optionally build a reproducible Evidence Atlas from every embedded record for local search, cross-filtering, nearest-neighbour inspection, and selection export. Atlas browser state is project/fingerprint scoped and does not change clustering or screening selections.
+- Optionally build a reproducible Evidence Atlas from every embedded record for local search, cross-filtering, nearest-neighbour inspection, and selection export. Python computes deterministic UMAP coordinates and cosine neighbors once; the browser-native Canvas viewer works in current Safari and Chrome without WebGL or a worker. Atlas browser state is project/fingerprint scoped and does not change clustering or screening selections.
 - Analyze WCSS before choosing K for every root or child projection, then create reproducible t-SNE/K-Means runs in an immutable branch tree with parent navigation and clickable abstract inspection.
 - Select clusters and run resumable OpenAI Structured Outputs screening.
 - Review source abstracts and AI rationales in a paginated adjudication queue. Human decisions and notes are timestamped, preserve the original AI audit trail, and become the final decisions used downstream.

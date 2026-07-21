@@ -17,7 +17,7 @@ FINGERPRINT_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 def _assets_ready() -> bool:
     static_folder = Path(current_app.static_folder or "")
-    return (static_folder / "atlas" / "atlas.js").is_file()
+    return (static_folder / "js" / "atlas_explorer.js").is_file()
 
 
 def _render(project_id: str, *, error: str | None = None, status_code: int = 200):
@@ -76,14 +76,15 @@ def _current_artifact(project_id: str, fingerprint: str) -> Path | None:
 
 @bp.get("/preview/<fingerprint>.json")
 def preview(project_id: str, fingerprint: str):
-    """Serve a compact, project-scoped Atlas view for browsers without WASM workers."""
+    """Serve the compact, project-scoped data used by the browser-native Atlas."""
 
     artifact = _current_artifact(project_id, fingerprint)
     if artifact is None:
         return Response(status=404)
     columns = [
         "atlas_id", "atlas_x", "atlas_y", "neighbors", "Title", "Authors", "Journal", "Date",
-        "DOI", "Source", "Year", "Cluster", "ai_decision", "ai_confidence", "ai_exclusion_reason",
+        "DOI", "Source", "EmbeddingModel", "Year", "Cluster", "ai_decision", "ai_confidence",
+        "ai_exclusion_reason",
     ]
     rows = pq.read_table(artifact, columns=columns).to_pylist()
     return jsonify({"fingerprint": fingerprint, "rows": rows})
@@ -101,14 +102,11 @@ def preview_record(project_id: str, fingerprint: str, atlas_id: str):
 
 @bp.after_request
 def atlas_headers(response: Response) -> Response:
-    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
-    response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
     response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'wasm-unsafe-eval'; "
+        "script-src 'self'; "
         "style-src 'self' 'unsafe-inline'; "
-        "worker-src 'self' blob:; "
         "connect-src 'self'; "
         "img-src 'self' data: blob:; "
         "font-src 'self' data:; "

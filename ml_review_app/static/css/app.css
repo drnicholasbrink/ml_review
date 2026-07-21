@@ -8,8 +8,8 @@ code { white-space: break-spaces; word-break: break-word; }
 .topbar { display: flex; justify-content: space-between; align-items: center; padding: 1rem 2rem; background: #0f172a; color: white; }
 .topbar a { color: white; text-decoration: none; margin-left: 1rem; }
 .brand { font-weight: 800; letter-spacing: .02em; }
-.container { max-width: 1180px; margin: 0 auto; padding: 2rem; }
-.workflow-layout { max-width: 1440px; display: grid; grid-template-columns: minmax(240px, 290px) minmax(0, 1fr); gap: 2rem; align-items: start; }
+.container { width: 100%; max-width: none; margin: 0 auto; padding: clamp(1rem, 2vw, 2rem); }
+.workflow-layout { max-width: none; display: grid; grid-template-columns: minmax(240px, 290px) minmax(0, 1fr); gap: clamp(1rem, 2vw, 2rem); align-items: start; }
 .workflow-sidebar { position: sticky; top: 1rem; background: white; border: 1px solid #e2e8f0; border-radius: 18px; overflow: hidden; box-shadow: 0 10px 24px rgba(15,23,42,.05); }
 .workflow-sidebar-heading { padding: 1.2rem; border-bottom: 1px solid #e2e8f0; }
 .workflow-sidebar-heading a { color: #0f172a; font-weight: 800; text-decoration: none; }
@@ -160,37 +160,59 @@ th, td { border-bottom: 1px solid #e5e7eb; padding: .65rem; text-align: left; ve
 .plot { min-height: 390px; }
 .plot-tall { min-height: 650px; }
 .js-plotly-plot, .plot-container, .svg-container { max-width: 100% !important; }
-.atlas-page { width: 100%; }
-.workflow-layout.atlas-layout { max-width: 1920px; grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); }
+.atlas-page { width: 100%; min-height: calc(100dvh - 7rem); }
+.workflow-layout.atlas-layout { width: 100%; max-width: none; grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); padding: 1rem; }
 .atlas-provenance { display: flex; flex-wrap: wrap; gap: .55rem; margin-bottom: 1rem; }
 .atlas-provenance span { padding: .45rem .7rem; border: 1px solid #cbd5e1; border-radius: 999px; color: #334155; background: white; font-size: .82rem; }
 .atlas-state { max-width: 760px; margin-inline: auto; text-align: center; }
 .atlas-state h2 { margin-top: 0; }
 .atlas-state code { display: inline-block; padding: .75rem 1rem; border-radius: 10px; color: #dbeafe; background: #0f172a; }
-.atlas-shell { width: 100%; padding: 0; overflow: hidden; }
+.atlas-shell { width: 100%; padding: 0; overflow: clip; }
 .atlas-workspace { width: 100%; min-height: 72vh; background: white; }
 .atlas-workspace > * { max-width: 100%; }
-.atlas-compatible { padding: 1.25rem; }
-.atlas-compatible-controls { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(150px, 1fr) minmax(130px, 1fr) auto; gap: .75rem; align-items: end; margin-bottom: 1rem; }
-.atlas-compatible-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 1rem; }
-.atlas-compatible-plot { display: block; width: 100%; min-height: 420px; border: 1px solid #dbe3ef; border-radius: 12px; background: #f8fafc; }
-.atlas-compatible-plot circle { cursor: pointer; opacity: .8; stroke: white; stroke-width: 2; }
-.atlas-compatible-plot circle:hover, .atlas-compatible-plot circle:focus { opacity: 1; stroke: #0f172a; stroke-width: 3; outline: none; }
-.atlas-compatible-details { max-height: 620px; overflow: auto; }
+.atlas-native { display: grid; gap: 1rem; padding: clamp(.8rem, 1.5vw, 1.4rem); }
+.atlas-native-controls { display: grid; grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(140px, 1fr)) auto; gap: .75rem; align-items: end; }
+.atlas-native-summary { margin: 0; color: #334155; font-weight: 800; }
+.atlas-native-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(320px, 1fr); gap: 1rem; align-items: stretch; }
+.atlas-native-grid > .card { margin: 0; }
+.atlas-native-plot-card { display: flex; min-height: 0; flex-direction: column; }
+.atlas-native-plot-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
+.atlas-native-plot-heading h2, .atlas-native-table-card h2 { margin-top: 0; }
+.atlas-plot-actions { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: end; }
+.atlas-plot-actions button { padding: .55rem .8rem; }
+.atlas-canvas-wrap { position: relative; width: 100%; min-height: clamp(430px, calc(100dvh - 24rem), 820px); flex: 1; overflow: hidden; border: 1px solid #dbe3ef; border-radius: 14px; background: #f8fafc; touch-action: none; }
+.atlas-native-canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+.atlas-native-canvas:active { cursor: grabbing; }
+.atlas-canvas-tooltip { position: absolute; z-index: 2; width: min(250px, 70%); padding: .45rem .6rem; border-radius: 8px; color: white; background: rgba(15,23,42,.94); font-size: .78rem; font-weight: 700; pointer-events: none; }
+.atlas-native-legend { display: flex; flex-wrap: wrap; gap: .4rem .9rem; margin-top: .75rem; color: #475569; font-size: .8rem; font-weight: 700; }
+.atlas-native-legend span { display: inline-flex; align-items: center; gap: .35rem; }
+.atlas-native-legend i { display: inline-block; width: .75rem; height: .75rem; border-radius: 50%; }
+.atlas-native-details { max-height: clamp(520px, calc(100dvh - 18rem), 900px); overflow: auto; overscroll-behavior: contain; }
+.atlas-coordinate { padding: .65rem; border-radius: 10px; color: #334155; background: #eff6ff; font-size: .82rem; font-weight: 700; }
 .atlas-neighbor-list { display: grid; gap: .5rem; padding-left: 1.25rem; }
-.atlas-compatible-table tbody tr { cursor: pointer; }
+.atlas-native-table-card { margin: 0; }
+.atlas-native-table-scroll { max-height: 34vh; }
+.atlas-native-table tbody tr { cursor: pointer; }
 
 @media (max-width: 860px) {
   .topbar { padding: 1rem; }
   .container { padding: 1rem; }
   .workflow-layout { display: block; }
   .workflow-sidebar { position: static; margin-bottom: 1rem; }
-  .workflow-nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+  .workflow-sidebar-heading { padding: .85rem 1rem; }
+  .workflow-nav { display: flex; gap: .35rem; overflow-x: auto; overscroll-behavior-inline: contain; scroll-snap-type: inline proximity; }
+  .workflow-nav li { flex: 0 0 min(205px, 70vw); scroll-snap-align: start; }
+  .workflow-link { height: 100%; padding: .65rem; }
   .explorer-grid { grid-template-columns: 1fr; }
   .cluster-search-grid { grid-template-columns: minmax(0, 1fr); }
   .section-heading { display: block; }
   .evaluation-grid { grid-template-columns: 1fr; }
-  .atlas-compatible-controls, .atlas-compatible-grid { grid-template-columns: minmax(0, 1fr); }
+  .atlas-native-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .atlas-native-controls button { align-self: end; }
+  .atlas-native-grid { grid-template-columns: minmax(0, 1fr); }
+  .atlas-native-details { max-height: none; }
+  .atlas-native-plot-heading { display: block; }
+  .atlas-plot-actions { justify-content: start; margin-bottom: .75rem; }
   .chart-wide { grid-column: auto; }
   .run-card { margin-left: calc(var(--branch-depth) * .8rem); }
   .data-table { min-width: 680px; }
@@ -200,8 +222,9 @@ th, td { border-bottom: 1px solid #e5e7eb; padding: .65rem; text-align: left; ve
 @media (max-width: 520px) {
   .topbar { align-items: flex-start; flex-direction: column; gap: .5rem; }
   .topbar a { margin: 0 1rem 0 0; }
-  .workflow-nav { grid-template-columns: minmax(0, 1fr); }
   .grid, .workflow-cards, .action-grid, .summary-cards { grid-template-columns: minmax(0, 1fr); }
   .page-heading, .workflow-card-topline { flex-wrap: wrap; }
   .run-card { margin-left: calc(var(--branch-depth) * .35rem); }
+  .atlas-native-controls { grid-template-columns: minmax(0, 1fr); }
+  .atlas-canvas-wrap { min-height: 380px; }
 }

@@ -53,7 +53,8 @@ def test_atlas_routes_build_serve_cache_and_stale_without_mutating_project_manif
     assert initial.status_code == 200
     assert b"Build evidence atlas" in initial.data
     assert b"cdn.plot.ly" not in initial.data
-    assert initial.headers["Cross-Origin-Embedder-Policy"] == "require-corp"
+    assert "Cross-Origin-Embedder-Policy" not in initial.headers
+    assert "wasm-unsafe-eval" not in initial.headers["Content-Security-Policy"]
     project_manifest_before = load_manifest(path)
 
     built = client.post(f"{page_url}/build")
@@ -63,6 +64,10 @@ def test_atlas_routes_build_serve_cache_and_stale_without_mutating_project_manif
     assert ready.status_code == 200
     assert b'id="atlas-root"' in ready.data
     assert b"Atlas selections stay in this browser" in ready.data
+    assert b"Server-computed UMAP" in ready.data
+    assert b"atlas_explorer.js" in ready.data
+    assert b"atlas.js" not in ready.data
+    assert b"high-performance Atlas engine" not in ready.data
 
     atlas_manifest = json.loads((path / "evidence_atlas" / "manifest.json").read_text())
     fingerprint = atlas_manifest["fingerprint"]
@@ -75,6 +80,7 @@ def test_atlas_routes_build_serve_cache_and_stale_without_mutating_project_manif
     preview = client.get(f"{page_url}/preview/{fingerprint}.json")
     assert preview.status_code == 200
     assert [row["Title"] for row in preview.json["rows"]] == ["Atlas study", "Second study"]
+    assert [row["EmbeddingModel"] for row in preview.json["rows"]] == ["fixture", "fixture"]
     atlas_id = preview.json["rows"][0]["atlas_id"]
     record = client.get(f"{page_url}/preview/{fingerprint}/records/{atlas_id}.json")
     assert record.status_code == 200
