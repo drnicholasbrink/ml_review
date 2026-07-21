@@ -17,7 +17,7 @@ The review exercised the complete interface with a real PubMed query bounded to 
 | CSV import | Column mappings persist across validation and revisit; long fields remain reviewable. |
 | Deduplication | Summary counts and a persistent duplicate audit table identify retained and removed records. |
 | Embeddings | Model, truncation, dimensions, and progress provenance are visible; runs resume safely. |
-| Evidence Atlas | Python computes deterministic UMAP coordinates and cosine neighbors; a responsive browser-native Canvas 2D explorer provides search, filters, pan/zoom, details, neighbors, and CSV export in current Safari and Chrome without WebGL, WebAssembly workers, Node.js, or a Jupyter kernel. |
+| Evidence Atlas | The accelerated worker is attempted first; a same-data compatible explorer handles unsupported browsers with search, filters, details, neighbors, and CSV export. |
 | Clustering | WCSS-first root/child branches, deterministic settings, source details, DOI/PubMed links, and selection history were exercised. |
 | Screening | Original AI fields remain immutable; human decisions, notes, timestamps, final-decision source, paging, filtering, and reviewed export are available. |
 | Evaluation | Funnel, Sankey, confidence, criterion, exclusion, t-SNE, human-reference metrics, and downloadable mismatches were checked. |

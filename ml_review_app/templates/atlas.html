@@ -7,7 +7,7 @@
     <div>
       <p class="eyebrow">Optional exploration</p>
       <h1>{{ manifest.name }} · Evidence Atlas</h1>
-      <p class="page-intro">Search, filter, and inspect the full embedding space through a server-computed UMAP projection. Atlas selections stay in this browser and never change screening or clustering inputs.</p>
+      <p class="page-intro">Search, filter, and inspect the full embedding space. Atlas selections stay in this browser and never change screening or clustering inputs.</p>
     </div>
     <a class="button secondary" href="{{ url_for('projects.dashboard', project_id=manifest.project_id) }}">Project overview</a>
   </div>
@@ -29,7 +29,8 @@
   {% elif not atlas_status.assets_ready %}
     <section class="card atlas-state" role="alert">
       <h2>Atlas frontend is not built</h2>
-      <p>The browser-native Atlas script is missing from the application image.</p>
+      <p>Build the local browser bundle before opening this workspace.</p>
+      <code>npm ci &amp;&amp; npm run build:atlas</code>
     </section>
   {% elif atlas_status.state == 'not_built' %}
     <section class="card atlas-state">
@@ -54,14 +55,18 @@
     <section class="atlas-provenance" aria-label="Atlas provenance">
       <span><strong>{{ atlas.rows }}</strong> records</span>
       <span><strong>{{ atlas.embedding_dimension }}</strong> dimensions</span>
-      <span><strong>Server-computed UMAP</strong> · cosine · seed 42</span>
+      <span>UMAP cosine · seed 42</span>
       <span>{{ atlas.parameters.neighbors }} nearest neighbors</span>
-      <span>Artifact schema {{ atlas.schema_version }}</span>
+      <span>Atlas {{ atlas.atlas_version }}</span>
     </section>
     <section class="card atlas-shell">
       <div id="atlas-loading" class="atlas-state" role="status">
         <h2>Loading Evidence Atlas…</h2>
-        <p>Opening the saved UMAP coordinates and citation metadata.</p>
+        <p>Starting the local analytical engine and opening the project artifact.</p>
+      </div>
+      <div id="atlas-unsupported" class="atlas-state" hidden role="alert">
+        <h2>This browser cannot run Evidence Atlas</h2>
+        <p>Use a current browser with WebAssembly, Web Workers, and WebGL 2 support.</p>
       </div>
       <div id="atlas-error" class="atlas-state" hidden role="alert">
         <h2>Evidence Atlas could not start</h2>
@@ -69,14 +74,22 @@
       </div>
       <div
         id="atlas-root"
-        class="atlas-workspace atlas-native"
+        class="atlas-workspace"
+        hidden
+        data-table="evidence_atlas"
+        data-url="{{ url_for('atlas.data', project_id=manifest.project_id, fingerprint=atlas.fingerprint) }}"
+        data-storage-key="ml-review-atlas:{{ manifest.project_id }}:{{ atlas.fingerprint }}"
+      ></div>
+      <div
+        id="atlas-fallback"
+        class="atlas-compatible"
         hidden
         data-preview-url="{{ url_for('atlas.preview', project_id=manifest.project_id, fingerprint=atlas.fingerprint) }}"
         data-record-url="{{ url_for('atlas.preview_record', project_id=manifest.project_id, fingerprint=atlas.fingerprint, atlas_id='ATLAS_ID') }}"
-        data-storage-key="ml-review-atlas:{{ manifest.project_id }}:{{ atlas.fingerprint }}"
       ></div>
     </section>
-    <script defer src="{{ url_for('static', filename='js/atlas_explorer.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/atlas_fallback.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='atlas/atlas.js') }}"></script>
   {% endif %}
 </div>
 {% endblock %}
