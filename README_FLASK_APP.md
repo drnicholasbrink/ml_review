@@ -37,6 +37,7 @@ No Node.js frontend build is required. Docker installs the exact tested Python s
 
 - Create or load an isolated review project.
 - Save a PubMed search strategy and inclusion/exclusion criteria.
+- Permanently delete a project and all of its project-scoped data through a guarded confirmation screen; deletion is blocked while a background task is active.
 - Fetch real PubMed records, or upload, map, normalize, and deduplicate a CSV.
 - Generate resumable OpenAI embeddings.
 - Optionally build a reproducible, slim Evidence Atlas artifact with precomputed UMAP coordinates and cosine neighbors, then open it in Apple's official Embedding Atlas with the projection, search text, and neighbors already mapped. A direct Parquet download remains available. Atlas exploration does not change clustering or screening selections.

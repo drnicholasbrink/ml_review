@@ -105,6 +105,8 @@ class TaskManager:
         failure_message: str,
     ) -> dict[str, Any]:
         with self._lock:
+            if not (project_path / "manifest.json").is_file():
+                raise FileNotFoundError("Project not found")
             current = active_task(project_path)
             if current is not None:
                 raise TaskConflictError(f"{current['title']} is already {current['state']} for this project")
@@ -132,6 +134,15 @@ class TaskManager:
                 assert self._executor is not None
                 self._executor.submit(self._run, project_path, task["task_id"], target, failure_message)
             return load_task(project_path, task["task_id"])
+
+    def run_project_exclusive(self, project_path: Path, action: Callable[[], None]) -> None:
+        """Run a destructive project action without racing task submission or progress writes."""
+
+        with self._lock:
+            current = active_task(project_path)
+            if current is not None:
+                raise TaskConflictError(f"{current['title']} is already {current['state']} for this project")
+            action()
 
     def _update(self, project_path: Path, task_id: str, **changes: Any) -> dict[str, Any]:
         with self._lock:

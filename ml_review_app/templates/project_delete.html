@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Delete {{ manifest.name }} · ML Review{% endblock %}
+{% block content %}
+<section class="card danger-zone stack">
+  <div>
+    <p class="eyebrow">Permanent deletion</p>
+    <h1>Delete {{ manifest.name }}?</h1>
+    <p class="page-intro">This permanently removes the project and all data stored with it, including uploaded records, generated CSV and JSON files, embeddings, clustering runs, Evidence Atlas artifacts, screening and extraction results, exports, and task history.</p>
+  </div>
+  <p><strong>This action cannot be undone.</strong> Download the publication bundle first if you need an archive.</p>
+  {% if monitored_task and monitored_task.state in ['queued', 'running'] %}
+  <p class="notice" role="status">Deletion is unavailable while {{ monitored_task.title }} is {{ monitored_task.state }}.</p>
+  {% endif %}
+  <dl>
+    <dt>Project name</dt><dd>{{ manifest.name }}</dd>
+    <dt>Project ID</dt><dd><code>{{ manifest.project_id }}</code></dd>
+  </dl>
+  {% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+  <form method="post" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Enter <strong>{{ manifest.name }}</strong> to confirm
+      <input name="confirmation" autocomplete="off" required autofocus>
+    </label>
+    <div class="form-actions">
+      <button class="danger" type="submit" {% if monitored_task and monitored_task.state in ['queued', 'running'] %}disabled{% endif %}>Permanently delete project</button>
+      <a class="button secondary" href="{{ url_for('projects.dashboard', project_id=manifest.project_id) }}">Cancel</a>
+      <a class="button secondary" href="{{ url_for('exports.publication_bundle', project_id=manifest.project_id) }}">Download publication bundle</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

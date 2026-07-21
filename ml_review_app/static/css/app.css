@@ -71,6 +71,9 @@ label small { color: #64748b; font-weight: 500; }
 .form-actions { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
 button, .button { display: inline-block; max-width: 100%; border: 0; border-radius: 999px; background: #2563eb; color: white; padding: .8rem 1.15rem; font: inherit; font-weight: 800; line-height: 1.2; text-align: center; text-decoration: none; white-space: normal; overflow-wrap: anywhere; cursor: pointer; }
 button.secondary, .button.secondary { background: #475569; }
+button.danger, .button.danger { background: #b91c1c; }
+button.danger:hover, .button.danger:hover { background: #991b1b; }
+.danger-zone { border-color: #fecaca; }
 button:disabled, .button.disabled { color: #94a3b8; background: #e2e8f0; cursor: not-allowed; }
 table { width: 100%; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #e5e7eb; padding: .65rem; text-align: left; vertical-align: top; }

@@ -6,11 +6,12 @@ from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from ml_review_app import create_app
 from ml_review_app.config import TestConfig
 from ml_review_app.services.clustering_service import load_clustering_state
-from ml_review_app.services.project_service import load_manifest, save_manifest
+from ml_review_app.services.project_service import delete_project, load_manifest, save_manifest
 
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "review_records.csv"
@@ -28,6 +29,68 @@ def create_project(client) -> tuple[str, str]:
     setup_url = response.headers["Location"]
     project_id = setup_url.split("/")[2]
     return project_id, setup_url
+
+
+def test_project_deletion_requires_confirmation_and_removes_only_project_data(tmp_path: Path):
+    app = make_app(tmp_path)
+    client = app.test_client()
+    project_id, _setup_url = create_project(client)
+    other_project_id, _other_setup_url = create_project(client)
+    projects_root = tmp_path / "runtime" / "projects"
+    project_path = projects_root / project_id
+    other_project_path = projects_root / other_project_id
+
+    (project_path / "tasks").mkdir()
+    (project_path / "tasks" / "task.json").write_text("task history")
+    (project_path / "evidence_atlas").mkdir()
+    (project_path / "evidence_atlas" / "atlas.parquet").write_bytes(b"atlas")
+    (project_path / "visualizations" / "projection.html").write_text("visualization")
+    (project_path / "screening.csv").write_text("decision\nexclude\n")
+    outside_file = tmp_path / "outside-project-data.txt"
+    outside_file.write_text("must remain")
+    (project_path / "external-link").symlink_to(outside_file)
+
+    confirmation = client.get(f"/projects/{project_id}/delete")
+    assert confirmation.status_code == 200
+    assert b"This action cannot be undone" in confirmation.data
+    assert b"Permanently delete project" in confirmation.data
+
+    mismatch = client.post(
+        f"/projects/{project_id}/delete",
+        data={"confirmation": "wrong project"},
+    )
+    assert mismatch.status_code == 400
+    assert b"Enter the project name exactly" in mismatch.data
+    assert project_path.is_dir()
+
+    deleted = client.post(
+        f"/projects/{project_id}/delete",
+        data={"confirmation": "Workflow review"},
+        follow_redirects=True,
+    )
+    assert deleted.status_code == 200
+    assert b"all associated project data" in deleted.data
+    assert not project_path.exists()
+    assert other_project_path.is_dir()
+    assert outside_file.read_text() == "must remain"
+    assert client.get(f"/projects/{project_id}").status_code == 404
+
+
+def test_project_deletion_rejects_a_symlinked_project_root(tmp_path: Path):
+    runtime_dir = tmp_path / "runtime"
+    projects_root = runtime_dir / "projects"
+    projects_root.mkdir(parents=True)
+    outside_project = tmp_path / "outside-project"
+    outside_project.mkdir()
+    (outside_project / "manifest.json").write_text('{"name": "Unsafe"}')
+    (outside_project / "keep.txt").write_text("keep")
+    project_id = "a" * 12
+    (projects_root / project_id).symlink_to(outside_project, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="unsafe"):
+        delete_project(runtime_dir, project_id)
+
+    assert (outside_project / "keep.txt").read_text() == "keep"
 
 
 def test_pages_and_prerequisite_messages(tmp_path: Path):

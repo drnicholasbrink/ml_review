@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -72,6 +73,16 @@ def project_dir(runtime_dir: Path, project_id: str) -> Path:
     if not path.is_dir():
         raise FileNotFoundError("Project not found")
     return path
+
+
+def delete_project(runtime_dir: Path, project_id: str) -> None:
+    """Delete one project directory and every project-owned artifact beneath it."""
+
+    path = project_dir(runtime_dir, project_id)
+    projects_root = (runtime_dir / "projects").resolve()
+    if path.is_symlink() or path.resolve().parent != projects_root:
+        raise ValueError("Project storage path is unsafe to delete")
+    shutil.rmtree(path)
 
 
 def manifest_path(project_path: Path) -> Path:
