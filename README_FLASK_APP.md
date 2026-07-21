@@ -41,9 +41,9 @@ No Node.js frontend build is required. Docker installs the exact tested Python s
 - Generate resumable OpenAI embeddings.
 - Optionally build a reproducible, slim Evidence Atlas artifact with precomputed UMAP coordinates and cosine neighbors, then open it in Apple's official Embedding Atlas with the projection, search text, and neighbors already mapped. A direct Parquet download remains available. Atlas exploration does not change clustering or screening selections.
 - Analyze WCSS before choosing K for every root or child projection, then create reproducible t-SNE/K-Means runs in an immutable branch tree with parent navigation and clickable abstract inspection.
-- Select clusters and run resumable OpenAI Structured Outputs screening.
+- Select clusters and run resumable OpenAI Structured Outputs screening with one controlled broad exclusion category and a concise record-specific rationale for every excluded record.
 - Review source abstracts and AI rationales in a paginated adjudication queue. Human decisions and notes are timestamped, preserve the original AI audit trail, and become the final decisions used downstream.
-- Explore locally served Plotly funnel, Sankey, confidence, criterion, exclusion, and t-SNE evaluation views.
+- Explore locally served Plotly funnel, Sankey, confidence, criterion, broad exclusion-category, and t-SNE evaluation views. Legacy reason-only results are normalized into the same broad categories for evaluation.
 - Optionally compare AI screening with a human-reference CSV using one-to-one fuzzy title matching and downloadable metrics/mismatches.
 - Run resumable abstract-only structured extraction on a bounded test sample before the full included set, then export nested JSON, study characteristics, effect estimates, and an extraction summary.
 - Download individual artifacts or a publication handoff ZIP containing the protocol inputs, decision audit, evaluation, and extraction outputs. Embeddings and credentials are excluded from the bundle.

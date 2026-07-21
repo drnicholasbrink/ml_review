@@ -792,6 +792,7 @@ def test_long_content_renders_in_responsive_containers_without_truncation(tmp_pa
                 "DOI": long_doi,
                 "ai_decision": "exclude",
                 "ai_confidence": "low",
+                "ai_exclusion_category": "population",
                 "ai_exclusion_reason": long_reason,
                 "ai_population_match": False,
                 "ai_exposure_match": True,
@@ -851,6 +852,7 @@ def test_long_content_renders_in_responsive_containers_without_truncation(tmp_pa
     assert long_title.encode() in screening_page.data
     assert long_rationale.encode() in screening_page.data
     assert long_doi.encode() in screening_page.data
+    assert b"Population" in screening_page.data
 
     evaluation_page = client.get(f"/projects/{project_id}/evaluation")
     assert evaluation_page.status_code == 200
@@ -858,6 +860,7 @@ def test_long_content_renders_in_responsive_containers_without_truncation(tmp_pa
     assert long_title.encode() in evaluation_page.data
     assert f"matched_{long_token}".encode() in evaluation_page.data
     assert b"automargin:true" in evaluation_page.data
+    assert b"Broad exclusion categories" in evaluation_page.data
 
     run_id = f"run_{long_token}"
     run_output = Path("visualizations/clustering_runs/long-content.csv")

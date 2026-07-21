@@ -20,7 +20,7 @@ The review exercised the complete interface with a real PubMed query bounded to 
 | Evidence Atlas | Python precomputes deterministic UMAP coordinates and cosine neighbors in a slim Parquet artifact. The interface opens Apple's official Embedding Atlas with the data URL and column settings preloaded, and offers a download-and-drop fallback for network-restricted browsers. |
 | Clustering | WCSS-first root/child branches, deterministic settings, source details, DOI/PubMed links, and selection history were exercised. |
 | Screening | Original AI fields remain immutable; human decisions, notes, timestamps, final-decision source, paging, filtering, and reviewed export are available. |
-| Evaluation | Funnel, Sankey, confidence, criterion, exclusion, t-SNE, human-reference metrics, and downloadable mismatches were checked. |
+| Evaluation | Funnel, Sankey, confidence, criterion, broad exclusion categories, t-SNE, human-reference metrics, and downloadable mismatches were checked. Specific exclusion rationales remain in the screening audit. |
 | Extraction | Included/final decisions feed a resumable Structured Outputs schema; stale extractions are removed when eligibility changes; publication-oriented CSV/JSON exports are available. |
 | Background tasks | PubMed fetch, embeddings, screening, and extraction run in a serial process-local worker with durable status, live progress polling, safe failures, restart recovery, and project-level write exclusion. |
 | Handoff | A ZIP assembles protocol inputs, record audit, screening/adjudication, evaluation, and extraction artifacts without credentials or embeddings. |

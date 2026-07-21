@@ -80,7 +80,8 @@
           <td class="instrument {{ 'match' if row.ai_outcome_match else 'miss' }}">{{ '✓' if row.ai_outcome_match else '—' }}</td>
           <td class="instrument {{ 'match' if row.ai_study_design_appropriate else 'miss' }}">{{ '✓' if row.ai_study_design_appropriate else '—' }}</td>
           <td>
-            {% if row.ai_exclusion_reason %}<strong>{{ row.ai_exclusion_reason | replace('_', ' ') | title }}</strong>{% endif %}
+            {% if row.ai_exclusion_category %}<span class="status-pill blocked">{{ row.ai_exclusion_category | replace('_', ' ') | title }}</span>{% endif %}
+            {% if row.ai_exclusion_reason %}<small>{{ row.ai_exclusion_reason }}</small>{% endif %}
             <details><summary>View abstract and AI rationale</summary><h4>Abstract</h4><p>{{ row.Abstract or 'No abstract supplied.' }}</p><h4>AI rationale</h4><p>{{ row.ai_reasoning }}</p></details>
           </td>
           <td>

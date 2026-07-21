@@ -47,6 +47,7 @@ TEXT_COLUMNS = (
     "EmbeddingModel",
     "ai_decision",
     "ai_confidence",
+    "ai_exclusion_category",
     "ai_exclusion_reason",
 )
 NUMERIC_COLUMNS = ("Year", "Cluster")
@@ -373,6 +374,7 @@ def _artifact_rows(
         screening_aliases = {
             "ai_decision": ("ai_decision", "decision", "Decision"),
             "ai_confidence": ("ai_confidence", "confidence", "Confidence"),
+            "ai_exclusion_category": ("ai_exclusion_category", "exclusion_category", "ExclusionCategory"),
             "ai_exclusion_reason": ("ai_exclusion_reason", "exclusion_reason", "ExclusionReason"),
         }
         for name, names in screening_aliases.items():

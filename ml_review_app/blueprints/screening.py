@@ -19,7 +19,7 @@ PAGE_SIZE = 100
 def _preview_rows(df: pd.DataFrame) -> list[dict]:
     columns = [
         "record_key", "RecordID", "PMID", "DOI", "Title", "Abstract", "ai_decision", "ai_confidence",
-        "ai_exclusion_reason", "ai_population_match", "ai_exposure_match", "ai_outcome_match",
+        "ai_exclusion_category", "ai_exclusion_reason", "ai_population_match", "ai_exposure_match", "ai_outcome_match",
         "ai_study_design_appropriate", "ai_reasoning", "ai_input_truncated", "human_decision",
         "human_note", "human_reviewed_at", "final_decision", "final_decision_source",
         "requires_human_review",
@@ -55,7 +55,9 @@ def _filtered_page(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     elif review_filter == "reviewed":
         filtered = filtered.loc[filtered["final_decision_source"] == "human"]
     if query:
-        searchable = filtered.reindex(columns=["RecordID", "PMID", "Title", "ai_decision", "ai_exclusion_reason", "ai_reasoning"]).fillna("").astype(str).agg(" ".join, axis=1)
+        searchable = filtered.reindex(columns=[
+            "RecordID", "PMID", "Title", "ai_decision", "ai_exclusion_category", "ai_exclusion_reason", "ai_reasoning",
+        ]).fillna("").astype(str).agg(" ".join, axis=1)
         filtered = filtered.loc[searchable.str.contains(query, case=False, regex=False)]
     total = len(filtered)
     pages = max(1, math.ceil(total / PAGE_SIZE))
