@@ -7,8 +7,9 @@ from flask import Blueprint, current_app, flash, jsonify, redirect, render_templ
 
 from ..services.clustering_service import (
     activate_run,
-    create_clustering_run,
-    create_subclustering_run,
+    analyze_clustering_source,
+    analyze_subclustering,
+    finalize_clustering_draft,
     get_run,
     load_clustering_state,
 )
@@ -51,7 +52,7 @@ def _view_data(path, manifest):
         df = pd.read_csv(path / active_run["output_file"])
         rows = df[["PointID", "TSNE_1", "TSNE_2", "Cluster", "Title", "RecordID"]].fillna("").to_dict(orient="records")
         clusters = sorted(int(value) for value in df["Cluster"].unique())
-    return state, active_run, rows, clusters
+    return state, active_run, state.get("draft"), rows, clusters
 
 
 @bp.route("", methods=["GET", "POST"])
@@ -61,13 +62,6 @@ def clustering(project_id: str):
     error = None
     if request.method == "POST":
         try:
-            n_clusters = parse_bounded_int(
-                request.form.get("n_clusters"),
-                "Cluster count",
-                minimum=1,
-                maximum=current_app.config["MAX_CLUSTER_COUNT"],
-                default=3,
-            )
             random_state = parse_bounded_int(
                 request.form.get("random_state"),
                 "Random seed",
@@ -80,25 +74,22 @@ def clustering(project_id: str):
             embeddings_path = path / embeddings_name if embeddings_name else None
             if not embeddings_path or not embeddings_path.exists():
                 raise ValueError("Generate embeddings before running clustering")
-            df, run, _state = create_clustering_run(
+            _df, _draft, _state = analyze_clustering_source(
                 path,
                 embeddings_path,
-                n_clusters=n_clusters,
                 random_state=random_state,
                 perplexity=perplexity,
             )
-            _activate_in_manifest(path, manifest, run, invalidate=True)
-            manifest["cluster_rows"] = len(df)
-            save_manifest(path, manifest)
         except ValueError as exc:
             error = str(exc)
-    state, active_run, rows, clusters = _view_data(path, manifest)
+    state, active_run, draft, rows, clusters = _view_data(path, manifest)
     status_code = 400 if error else 200
     return render_template(
         "clustering.html",
         manifest=manifest,
         state=state,
         active_run=active_run,
+        draft=draft,
         scores=active_run["elbow_scores"] if active_run else None,
         rows=rows,
         clusters=clusters,
@@ -106,23 +97,38 @@ def clustering(project_id: str):
     ), status_code
 
 
+@bp.post("/finalize")
+def finalize(project_id: str):
+    path = project_dir(current_app.config["RUNTIME_DIR"], project_id)
+    manifest = load_manifest(path)
+    try:
+        n_clusters = parse_bounded_int(
+            request.form.get("n_clusters"),
+            "Cluster count",
+            minimum=1,
+            maximum=current_app.config["MAX_CLUSTER_COUNT"],
+            default=3,
+        )
+        df, run, _state = finalize_clustering_draft(path, n_clusters=n_clusters)
+        _activate_in_manifest(path, manifest, run, invalidate=True)
+        manifest["cluster_rows"] = len(df)
+        save_manifest(path, manifest)
+        branch_type = "root run" if run["parent_run_id"] is None else f"branch from {run['parent_run_id']}"
+        flash(f"Created {run['run_id']} as a {branch_type} with {run['n_clusters']} clusters.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("clustering.clustering", project_id=project_id))
+
+
 @bp.post("/subcluster")
 def subcluster(project_id: str):
     path = project_dir(current_app.config["RUNTIME_DIR"], project_id)
-    manifest = load_manifest(path)
     try:
         state = load_clustering_state(path)
         active = get_run(state)
         if active is None:
             raise ValueError("Run clustering before creating subclusters")
         selected = [int(value) for value in request.form.getlist("clusters")]
-        n_clusters = parse_bounded_int(
-            request.form.get("n_clusters"),
-            "Subcluster count",
-            minimum=1,
-            maximum=current_app.config["MAX_CLUSTER_COUNT"],
-            default=2,
-        )
         random_state = parse_bounded_int(
             request.form.get("random_state"),
             "Random seed",
@@ -130,16 +136,14 @@ def subcluster(project_id: str):
             maximum=2_147_483_647,
             default=current_app.config["DEFAULT_TSNE_RANDOM_STATE"],
         )
-        df, run, _state = create_subclustering_run(
+        df, draft, _state = analyze_subclustering(
             path,
             parent_run_id=active["run_id"],
             selected_clusters=selected,
-            n_clusters=n_clusters,
             random_state=random_state,
             perplexity=_parse_perplexity(request.form.get("perplexity")),
         )
-        _activate_in_manifest(path, manifest, run, invalidate=True)
-        flash(f"Created {run['run_id']} with {run['n_clusters']} subclusters across {len(df)} records.")
+        flash(f"WCSS analysis is ready for a new branch from {draft['parent_run_id']} across {len(df)} records. Choose the cluster count next.")
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("clustering.clustering", project_id=project_id))

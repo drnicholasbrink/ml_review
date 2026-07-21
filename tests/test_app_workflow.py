@@ -7,6 +7,7 @@ import pandas as pd
 
 from ml_review_app import create_app
 from ml_review_app.config import TestConfig
+from ml_review_app.services.clustering_service import load_clustering_state
 from ml_review_app.services.project_service import load_manifest
 
 
@@ -66,8 +67,8 @@ def test_pages_and_prerequisite_messages(tmp_path: Path):
     assert clustering.status_code == 400
     assert b"Generate embeddings before running clustering" in clustering.data
 
-    invalid_cluster_count = client.post(f"/projects/{project_id}/clustering", data={"n_clusters": "21"})
-    assert invalid_cluster_count.status_code == 400
+    invalid_cluster_count = client.post(f"/projects/{project_id}/clustering/finalize", data={"n_clusters": "21"}, follow_redirects=True)
+    assert invalid_cluster_count.status_code == 200
     assert b"Cluster count must be between 1 and 20" in invalid_cluster_count.data
 
     screening = client.post(f"/projects/{project_id}/screening")
@@ -240,13 +241,27 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/clustering")
 
+    initial_clustering = client.get(f"/projects/{project_id}/clustering")
+    assert b"Analyze new root WCSS" in initial_clustering.data
+    assert b"Cluster count after reviewing WCSS" not in initial_clustering.data
+
     response = client.post(
         f"/projects/{project_id}/clustering",
-        data={"n_clusters": "2"},
+        data={"random_state": "42"},
     )
     assert response.status_code == 200
-    assert b"Elbow scores" in response.data
-    assert b"Refine selected clusters" in response.data
+    assert b"WCSS before choosing K" in response.data
+    assert b"Cluster count after reviewing WCSS" in response.data
+    manifest = load_manifest(project_path)
+    assert "labeled_clusters" not in manifest["files"]
+
+    finalize_root = client.post(
+        f"/projects/{project_id}/clustering/finalize",
+        data={"n_clusters": "2"},
+    )
+    assert finalize_root.status_code == 302
+    clustered_page = client.get(f"/projects/{project_id}/clustering")
+    assert b"Create a child branch from run_001" in clustered_page.data
 
     manifest = load_manifest(project_path)
     clustered = pd.read_csv(project_path / manifest["files"]["labeled_clusters"])
@@ -259,11 +274,19 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
         f"/projects/{project_id}/clustering/subcluster",
         data={
             "clusters": [str(value) for value in selected_clusters],
-            "n_clusters": "2",
             "random_state": "42",
         },
     )
     assert subcluster.status_code == 302
+    state = load_clustering_state(project_path)
+    assert state["active_run_id"] == "run_001"
+    assert state["draft"]["parent_run_id"] == "run_001"
+
+    finalize_subcluster = client.post(
+        f"/projects/{project_id}/clustering/finalize",
+        data={"n_clusters": "2"},
+    )
+    assert finalize_subcluster.status_code == 302
     manifest = load_manifest(project_path)
     assert manifest["active_clustering_run"] == "run_002"
     assert (project_path / "visualizations" / "clustering_runs" / "run_001.csv").exists()
@@ -271,6 +294,30 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
 
     back = client.post(f"/projects/{project_id}/clustering/back")
     assert back.status_code == 302
+    manifest = load_manifest(project_path)
+    assert manifest["active_clustering_run"] == "run_001"
+
+    sibling_analysis = client.post(
+        f"/projects/{project_id}/clustering/subcluster",
+        data={
+            "clusters": [str(value) for value in selected_clusters],
+            "random_state": "7",
+        },
+    )
+    assert sibling_analysis.status_code == 302
+    sibling_finalize = client.post(
+        f"/projects/{project_id}/clustering/finalize",
+        data={"n_clusters": "2"},
+    )
+    assert sibling_finalize.status_code == 302
+    state = load_clustering_state(project_path)
+    assert state["active_run_id"] == "run_003"
+    assert [run["parent_run_id"] for run in state["runs"]] == [None, "run_001", "run_001"]
+    assert state["runs"][1]["random_state"] == 42
+    assert state["runs"][2]["random_state"] == 7
+
+    back_to_seed = client.post(f"/projects/{project_id}/clustering/back")
+    assert back_to_seed.status_code == 302
     manifest = load_manifest(project_path)
     assert manifest["active_clustering_run"] == "run_001"
 

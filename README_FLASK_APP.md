@@ -37,7 +37,7 @@ flask --app wsgi:app run --debug
 - Save a PubMed search strategy and inclusion/exclusion criteria.
 - Fetch real PubMed records, or upload, map, normalize, and deduplicate a CSV.
 - Generate resumable OpenAI embeddings.
-- Create reproducible t-SNE/K-Means runs with immutable history, subclustering, parent navigation, and clickable abstract inspection.
+- Analyze WCSS before choosing K for every root or child projection, then create reproducible t-SNE/K-Means runs in an immutable branch tree with parent navigation and clickable abstract inspection.
 - Select clusters and run resumable OpenAI Structured Outputs screening.
 - Review screening results in a searchable table and explore interactive Plotly funnel, Sankey, confidence, criterion, exclusion, and t-SNE evaluation views.
 - Optionally compare AI screening with a human-reference CSV using one-to-one fuzzy title matching and downloadable metrics/mismatches.

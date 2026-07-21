@@ -18,6 +18,9 @@ from sklearn.preprocessing import StandardScaler
 
 STATE_FILENAME = "clustering_state.json"
 RUN_DIRECTORY = Path("visualizations") / "clustering_runs"
+DRAFT_DIRECTORY = Path("visualizations") / "clustering_draft"
+DRAFT_INPUT_FILE = DRAFT_DIRECTORY / "input.csv"
+DRAFT_OUTPUT_FILE = DRAFT_DIRECTORY / "projection.csv"
 
 
 def parse_embedding(value: object) -> np.ndarray | None:
@@ -91,7 +94,7 @@ def reduce_embeddings(
     return points, {"method": "t-SNE", "perplexity": effective_perplexity}
 
 
-def elbow_scores(points: np.ndarray, max_k: int = 10, random_state: int = 42) -> list[dict[str, float]]:
+def elbow_scores(points: np.ndarray, max_k: int = 20, random_state: int = 42) -> list[dict[str, float]]:
     """Calculate reproducible WCSS values for an elbow plot."""
 
     max_k = max(1, min(max_k, len(points)))
@@ -114,10 +117,11 @@ def cluster_points(points: np.ndarray, n_clusters: int, random_state: int = 42) 
 def load_clustering_state(project_path: Path) -> dict[str, Any]:
     state_path = project_path / STATE_FILENAME
     if not state_path.exists():
-        return {"active_run_id": None, "runs": []}
+        return {"active_run_id": None, "runs": [], "draft": None}
     state = json.loads(state_path.read_text())
     if not isinstance(state.get("runs"), list):
         raise ValueError("Clustering history is invalid")
+    state.setdefault("draft", None)
     return state
 
 
@@ -134,6 +138,133 @@ def _next_run_id(state: dict[str, Any]) -> str:
     return f"run_{len(state['runs']) + 1:03d}"
 
 
+def analyze_clustering_source(
+    project_path: Path,
+    source_csv: Path,
+    *,
+    random_state: int = 42,
+    perplexity: float | None = None,
+    parent_run_id: str | None = None,
+    parent_clusters: list[int] | None = None,
+    source_label: str | None = None,
+) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
+    """Save an exact projection and WCSS curve before cluster count is chosen."""
+
+    state = load_clustering_state(project_path)
+    parent = get_run(state, parent_run_id) if parent_run_id else None
+    if parent_run_id and parent is None:
+        raise ValueError("The parent clustering run no longer exists")
+    df, matrix = load_embedding_matrix(source_csv)
+    points, reduction = reduce_embeddings(matrix, random_state=random_state, perplexity=perplexity)
+    scores = elbow_scores(points, random_state=random_state)
+    df["TSNE_1"] = points[:, 0]
+    df["TSNE_2"] = points[:, 1]
+    draft_path = project_path / DRAFT_OUTPUT_FILE
+    draft_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(draft_path, index=False)
+    draft = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "source_file": source_label or str(source_csv.relative_to(project_path)),
+        "projection_file": str(DRAFT_OUTPUT_FILE),
+        "row_count": len(df),
+        "random_state": int(random_state),
+        "perplexity": reduction["perplexity"],
+        "method": reduction["method"],
+        "metric": "cosine" if reduction["method"] == "t-SNE" else None,
+        "parent_run_id": parent_run_id,
+        "depth": int(parent["depth"]) + 1 if parent else 0,
+        "selected_parent_clusters": sorted(parent_clusters or []),
+        "elbow_scores": scores,
+        "sklearn_version": sklearn.__version__,
+    }
+    state["draft"] = draft
+    save_clustering_state(project_path, state)
+    return df, draft, state
+
+
+def analyze_subclustering(
+    project_path: Path,
+    *,
+    parent_run_id: str,
+    selected_clusters: list[int],
+    random_state: int = 42,
+    perplexity: float | None = None,
+) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
+    """Analyze selected parent clusters and expose WCSS before creating a child run."""
+
+    state = load_clustering_state(project_path)
+    parent = get_run(state, parent_run_id)
+    if parent is None:
+        raise ValueError("The selected parent clustering run no longer exists")
+    parent_df = pd.read_csv(project_path / parent["output_file"])
+    available = {int(value) for value in parent_df["Cluster"].unique()}
+    selected = {int(value) for value in selected_clusters}
+    if not selected or not selected <= available:
+        raise ValueError("Select one or more clusters from the active run")
+    subset = parent_df[parent_df["Cluster"].isin(selected)].copy()
+    input_path = project_path / DRAFT_INPUT_FILE
+    input_path.parent.mkdir(parents=True, exist_ok=True)
+    subset.to_csv(input_path, index=False)
+    return analyze_clustering_source(
+        project_path,
+        input_path,
+        random_state=random_state,
+        perplexity=perplexity,
+        parent_run_id=parent_run_id,
+        parent_clusters=sorted(selected),
+        source_label=parent["output_file"],
+    )
+
+
+def finalize_clustering_draft(
+    project_path: Path,
+    *,
+    n_clusters: int,
+) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
+    """Create an immutable run from the displayed projection and WCSS analysis."""
+
+    state = load_clustering_state(project_path)
+    draft = state.get("draft")
+    if not draft:
+        raise ValueError("Analyze t-SNE and WCSS before choosing a cluster count")
+    projection_path = project_path / draft["projection_file"]
+    if not projection_path.exists():
+        raise ValueError("The analyzed clustering projection is missing; run the WCSS analysis again")
+    df = pd.read_csv(projection_path)
+    points = df[["TSNE_1", "TSNE_2"]].to_numpy(dtype=float)
+    df["Cluster"] = cluster_points(points, n_clusters, random_state=int(draft["random_state"])).astype(int)
+    parent = get_run(state, draft.get("parent_run_id")) if draft.get("parent_run_id") else None
+    if draft.get("parent_run_id") and parent is None:
+        raise ValueError("The analyzed parent run no longer exists")
+    run_id = _next_run_id(state)
+    relative_output = RUN_DIRECTORY / f"{run_id}.csv"
+    output_path = project_path / relative_output
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(output_path, index=False)
+    run = {
+        "run_id": run_id,
+        "parent_run_id": draft.get("parent_run_id"),
+        "depth": draft["depth"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "source_file": draft["source_file"],
+        "output_file": str(relative_output),
+        "row_count": len(df),
+        "n_clusters": int(n_clusters),
+        "random_state": int(draft["random_state"]),
+        "perplexity": draft["perplexity"],
+        "method": draft["method"],
+        "metric": draft["metric"],
+        "selected_parent_clusters": draft["selected_parent_clusters"],
+        "elbow_scores": draft["elbow_scores"],
+        "sklearn_version": draft["sklearn_version"],
+    }
+    state["runs"].append(run)
+    state["active_run_id"] = run_id
+    state["draft"] = None
+    save_clustering_state(project_path, state)
+    return df, run, state
+
+
 def create_clustering_run(
     project_path: Path,
     source_csv: Path,
@@ -146,44 +277,15 @@ def create_clustering_run(
 ) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
     """Create and persist one immutable clustering run and its exact parameters."""
 
-    df, matrix = load_embedding_matrix(source_csv)
-    points, reduction = reduce_embeddings(matrix, random_state=random_state, perplexity=perplexity)
-    labels = cluster_points(points, n_clusters, random_state=random_state)
-    scores = elbow_scores(points, random_state=random_state)
-    df["TSNE_1"] = points[:, 0]
-    df["TSNE_2"] = points[:, 1]
-    df["Cluster"] = labels.astype(int)
-
-    state = load_clustering_state(project_path)
-    parent = get_run(state, parent_run_id) if parent_run_id else None
-    if parent_run_id and parent is None:
-        raise ValueError("The parent clustering run no longer exists")
-    run_id = _next_run_id(state)
-    relative_output = RUN_DIRECTORY / f"{run_id}.csv"
-    output_path = project_path / relative_output
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(output_path, index=False)
-    run = {
-        "run_id": run_id,
-        "parent_run_id": parent_run_id,
-        "depth": int(parent["depth"]) + 1 if parent else 0,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "source_file": str(source_csv.relative_to(project_path)),
-        "output_file": str(relative_output),
-        "row_count": len(df),
-        "n_clusters": int(n_clusters),
-        "random_state": int(random_state),
-        "perplexity": reduction["perplexity"],
-        "method": reduction["method"],
-        "metric": "cosine" if reduction["method"] == "t-SNE" else None,
-        "selected_parent_clusters": sorted(parent_clusters or []),
-        "elbow_scores": scores,
-        "sklearn_version": sklearn.__version__,
-    }
-    state["runs"].append(run)
-    state["active_run_id"] = run_id
-    save_clustering_state(project_path, state)
-    return df, run, state
+    analyze_clustering_source(
+        project_path,
+        source_csv,
+        random_state=random_state,
+        perplexity=perplexity,
+        parent_run_id=parent_run_id,
+        parent_clusters=parent_clusters,
+    )
+    return finalize_clustering_draft(project_path, n_clusters=n_clusters)
 
 
 def create_subclustering_run(
@@ -197,30 +299,14 @@ def create_subclustering_run(
 ) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
     """Create a child run from selected clusters of an existing run."""
 
-    state = load_clustering_state(project_path)
-    parent = get_run(state, parent_run_id)
-    if parent is None:
-        raise ValueError("The selected parent clustering run no longer exists")
-    parent_df = pd.read_csv(project_path / parent["output_file"])
-    available = {int(value) for value in parent_df["Cluster"].unique()}
-    selected = {int(value) for value in selected_clusters}
-    if not selected or not selected <= available:
-        raise ValueError("Select one or more clusters from the active run")
-    subset = parent_df[parent_df["Cluster"].isin(selected)].copy()
-    if n_clusters > len(subset):
-        raise ValueError(f"Subcluster count cannot exceed the {len(subset)} selected records")
-    input_path = project_path / RUN_DIRECTORY / f"{_next_run_id(state)}_input.csv"
-    input_path.parent.mkdir(parents=True, exist_ok=True)
-    subset.to_csv(input_path, index=False)
-    return create_clustering_run(
+    analyze_subclustering(
         project_path,
-        input_path,
-        n_clusters=n_clusters,
+        parent_run_id=parent_run_id,
+        selected_clusters=selected_clusters,
         random_state=random_state,
         perplexity=perplexity,
-        parent_run_id=parent_run_id,
-        parent_clusters=sorted(selected),
     )
+    return finalize_clustering_draft(project_path, n_clusters=n_clusters)
 
 
 def activate_run(project_path: Path, run_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -231,6 +317,7 @@ def activate_run(project_path: Path, run_id: str) -> tuple[dict[str, Any], dict[
     if run is None:
         raise ValueError("The requested clustering run does not exist")
     state["active_run_id"] = run_id
+    state["draft"] = None
     save_clustering_state(project_path, state)
     return run, state
 
