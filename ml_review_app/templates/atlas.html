@@ -7,7 +7,7 @@
     <div>
       <p class="eyebrow">Optional exploration</p>
       <h1>{{ manifest.name }} · Evidence Atlas</h1>
-      <p class="page-intro">Search, filter, and inspect the full embedding space. Atlas selections stay in this browser and never change screening or clustering inputs.</p>
+      <p class="page-intro">Explore the review in Apple's official Embedding Atlas using the saved, reproducible UMAP projection. Atlas exploration never changes screening or clustering inputs.</p>
     </div>
     <a class="button secondary" href="{{ url_for('projects.dashboard', project_id=manifest.project_id) }}">Project overview</a>
   </div>
@@ -25,12 +25,6 @@
       <h2>No embedded records</h2>
       <p>{{ atlas_status.message }} Regenerate embeddings after adding records to the project.</p>
       <a class="button" href="{{ url_for('embeddings.embeddings', project_id=manifest.project_id) }}">Go to embeddings</a>
-    </section>
-  {% elif not atlas_status.assets_ready %}
-    <section class="card atlas-state" role="alert">
-      <h2>Atlas frontend is not built</h2>
-      <p>Build the local browser bundle before opening this workspace.</p>
-      <code>npm ci &amp;&amp; npm run build:atlas</code>
     </section>
   {% elif atlas_status.state == 'not_built' %}
     <section class="card atlas-state">
@@ -55,41 +49,49 @@
     <section class="atlas-provenance" aria-label="Atlas provenance">
       <span><strong>{{ atlas.rows }}</strong> records</span>
       <span><strong>{{ atlas.embedding_dimension }}</strong> dimensions</span>
-      <span>UMAP cosine · seed 42</span>
+      <span><strong>Precomputed UMAP</strong> · cosine · seed 42</span>
       <span>{{ atlas.parameters.neighbors }} nearest neighbors</span>
-      <span>Atlas {{ atlas.atlas_version }}</span>
+      <span>Apple Atlas {{ atlas.atlas_version }}</span>
     </section>
-    <section class="card atlas-shell">
-      <div id="atlas-loading" class="atlas-state" role="status">
-        <h2>Loading Evidence Atlas…</h2>
-        <p>Starting the local analytical engine and opening the project artifact.</p>
+    <section class="card atlas-launch-card">
+      <div class="atlas-launch-copy">
+        <p class="eyebrow">Official viewer</p>
+        {% if atlas_preload_available %}
+          <h2>Open in Apple Embedding Atlas</h2>
+          <p>The review artifact opens in a new tab with citation search, metadata charts, linked filters, the precomputed UMAP projection, and nearest-neighbor navigation already configured.</p>
+        {% else %}
+          <h2>Explore in Apple Embedding Atlas</h2>
+          <p>Download the prepared Parquet file, open Apple's viewer, then drop the file onto the page. In its setup screen, select <code>search_text</code> for text and <code>atlas_x</code>, <code>atlas_y</code>, and <code>neighbors</code> for the precomputed projection. This handoff is required because a secure web page cannot fetch data from this local HTTP server.</p>
+        {% endif %}
+        <div class="form-actions">
+          <a
+            class="button{% if atlas_preload_available %} secondary{% endif %}"
+            href="{{ url_for('atlas.data', project_id=manifest.project_id, fingerprint=atlas.fingerprint) }}"
+            download
+          >Download Atlas Parquet</a>
+          <a
+            class="button{% if not atlas_preload_available %} secondary{% endif %}"
+            href="{% if atlas_preload_available %}{{ url_for('atlas.open_in_apple', project_id=manifest.project_id, fingerprint=atlas.fingerprint) }}{% else %}{{ apple_atlas_app_url }}{% endif %}"
+            target="_blank"
+            rel="noopener noreferrer"
+          >{% if atlas_preload_available %}Open preloaded Atlas{% else %}Open official file viewer{% endif %}</a>
+        </div>
       </div>
-      <div id="atlas-unsupported" class="atlas-state" hidden role="alert">
-        <h2>This browser cannot run Evidence Atlas</h2>
-        <p>Use a current browser with WebAssembly, Web Workers, and WebGL 2 support.</p>
+      <div class="atlas-launch-details" aria-label="Atlas handoff details">
+        <h3>{% if atlas_preload_available %}What is preloaded{% else %}Columns prepared for Atlas{% endif %}</h3>
+        <ul>
+          <li>Saved <code>atlas_x</code> and <code>atlas_y</code> coordinates</li>
+          <li>Title and abstract text for search and tooltips</li>
+          <li>Precomputed cosine nearest neighbors</li>
+          <li>Cluster, screening, source, year, and model metadata</li>
+        </ul>
       </div>
-      <div id="atlas-error" class="atlas-state" hidden role="alert">
-        <h2>Evidence Atlas could not start</h2>
-        <p id="atlas-error-message">Reload the page and try again.</p>
-      </div>
-      <div
-        id="atlas-root"
-        class="atlas-workspace"
-        hidden
-        data-table="evidence_atlas"
-        data-url="{{ url_for('atlas.data', project_id=manifest.project_id, fingerprint=atlas.fingerprint) }}"
-        data-storage-key="ml-review-atlas:{{ manifest.project_id }}:{{ atlas.fingerprint }}"
-      ></div>
-      <div
-        id="atlas-fallback"
-        class="atlas-compatible"
-        hidden
-        data-preview-url="{{ url_for('atlas.preview', project_id=manifest.project_id, fingerprint=atlas.fingerprint) }}"
-        data-record-url="{{ url_for('atlas.preview_record', project_id=manifest.project_id, fingerprint=atlas.fingerprint, atlas_id='ATLAS_ID') }}"
-      ></div>
     </section>
-    <script defer src="{{ url_for('static', filename='js/atlas_fallback.js') }}"></script>
-    <script type="module" src="{{ url_for('static', filename='atlas/atlas.js') }}"></script>
+    {% if atlas_preload_available %}
+      <p class="atlas-privacy-note">The Parquet file is fetched directly from this ML Review server into the official viewer in your browser. Apple states that viewer data remains confined to the browser.</p>
+    {% else %}
+      <p class="atlas-privacy-note">One-click preload becomes available when <code>ML_REVIEW_PUBLIC_BASE_URL</code> is set to this server's publicly reachable HTTPS origin. The downloaded file already contains the projection and nearest-neighbor data.</p>
+    {% endif %}
   {% endif %}
 </div>
 {% endblock %}

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
 import json
+import zlib
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import pandas as pd
 
@@ -42,9 +45,8 @@ def project_with_embeddings(app, title: str = "Atlas study"):
     return manifest, path
 
 
-def test_atlas_routes_build_serve_cache_and_stale_without_mutating_project_manifest(tmp_path: Path, monkeypatch):
-    app = make_app(tmp_path)
-    monkeypatch.setattr("ml_review_app.blueprints.atlas._assets_ready", lambda: True)
+def test_atlas_routes_build_launch_download_and_stale_without_mutating_project_manifest(tmp_path: Path):
+    app = make_app(tmp_path, PUBLIC_BASE_URL="https://reviews.example")
     manifest, path = project_with_embeddings(app)
     client = app.test_client()
     page_url = f"/projects/{manifest['project_id']}/atlas"
@@ -53,7 +55,8 @@ def test_atlas_routes_build_serve_cache_and_stale_without_mutating_project_manif
     assert initial.status_code == 200
     assert b"Build evidence atlas" in initial.data
     assert b"cdn.plot.ly" not in initial.data
-    assert initial.headers["Cross-Origin-Embedder-Policy"] == "require-corp"
+    assert "Cross-Origin-Embedder-Policy" not in initial.headers
+    assert "wasm-unsafe-eval" not in initial.headers["Content-Security-Policy"]
     project_manifest_before = load_manifest(path)
 
     built = client.post(f"{page_url}/build")
@@ -61,25 +64,37 @@ def test_atlas_routes_build_serve_cache_and_stale_without_mutating_project_manif
     assert load_manifest(path) == project_manifest_before
     ready = client.get(page_url)
     assert ready.status_code == 200
-    assert b'id="atlas-root"' in ready.data
-    assert b"Atlas selections stay in this browser" in ready.data
+    assert b"Open preloaded Atlas" in ready.data
+    assert b"Precomputed UMAP" in ready.data
+    assert b"atlas.js" not in ready.data
 
     atlas_manifest = json.loads((path / "evidence_atlas" / "manifest.json").read_text())
     fingerprint = atlas_manifest["fingerprint"]
     artifact = client.get(f"{page_url}/data/{fingerprint}.parquet")
     assert artifact.status_code == 200
     assert artifact.headers["Cache-Control"] == "private, max-age=31536000, immutable"
-    assert artifact.headers["Cross-Origin-Resource-Policy"] == "same-origin"
+    assert artifact.headers["Access-Control-Allow-Origin"] == "https://apple.github.io"
+    assert artifact.headers["Cross-Origin-Resource-Policy"] == "cross-origin"
     assert client.get(f"{page_url}/data/{'0' * 64}.parquet").status_code == 404
     assert client.get(f"{page_url}/data/not-a-hash.parquet").status_code == 404
-    preview = client.get(f"{page_url}/preview/{fingerprint}.json")
-    assert preview.status_code == 200
-    assert [row["Title"] for row in preview.json["rows"]] == ["Atlas study", "Second study"]
-    atlas_id = preview.json["rows"][0]["atlas_id"]
-    record = client.get(f"{page_url}/preview/{fingerprint}/records/{atlas_id}.json")
-    assert record.status_code == 200
-    assert record.json["Abstract"] == "An abstract"
-    assert client.get(f"{page_url}/preview/{'0' * 64}.json").status_code == 404
+
+    launch = client.get(f"{page_url}/open/{fingerprint}")
+    assert launch.status_code == 302
+    location = urlparse(launch.headers["Location"])
+    assert f"{location.scheme}://{location.netloc}{location.path}" == "https://apple.github.io/embedding-atlas/app/"
+    params = parse_qs(location.fragment.removeprefix("?"))
+    assert params["data"] == [f"https://reviews.example{page_url}/data/{fingerprint}.parquet"]
+    encoded_settings = params["settings"][0]
+    compressed = base64.urlsafe_b64decode(encoded_settings + "=" * (-len(encoded_settings) % 4))
+    settings = json.loads(zlib.decompress(compressed, wbits=-zlib.MAX_WBITS))
+    assert settings == {
+        "version": "0.22.0",
+        "text": "search_text",
+        "embedding": {
+            "precomputed": {"x": "atlas_x", "y": "atlas_y", "neighbors": "neighbors"}
+        },
+    }
+    assert client.get(f"{page_url}/open/{'0' * 64}").status_code == 404
 
     source = pd.read_csv(path / "embeddings.csv")
     source.loc[0, "Title"] = "Changed title"
@@ -100,7 +115,32 @@ def test_atlas_data_is_project_scoped(tmp_path: Path):
 
     response = client.get(f"/projects/{second['project_id']}/atlas/data/{fingerprint}.parquet")
     assert response.status_code == 404
-    assert client.get(f"/projects/{second['project_id']}/atlas/preview/{fingerprint}.json").status_code == 404
+    assert client.get(f"/projects/{second['project_id']}/atlas/open/{fingerprint}").status_code == 404
+
+
+def test_local_http_atlas_uses_download_and_drop_handoff(tmp_path: Path):
+    app = make_app(tmp_path)
+    manifest, path = project_with_embeddings(app)
+    client = app.test_client()
+    page_url = f"/projects/{manifest['project_id']}/atlas"
+    client.post(f"{page_url}/build")
+
+    ready = client.get(page_url)
+    assert ready.status_code == 200
+    assert b"Download Atlas Parquet" in ready.data
+    assert b"Open official file viewer" in ready.data
+    assert b"Open preloaded Atlas" not in ready.data
+    assert b"secure web page cannot fetch data from this local HTTP server" in ready.data
+
+    local_tls = client.get(page_url, base_url="https://localhost")
+    assert b"Open official file viewer" in local_tls.data
+    assert b"Open preloaded Atlas" not in local_tls.data
+
+    fingerprint = json.loads((path / "evidence_atlas" / "manifest.json").read_text())["fingerprint"]
+    launch = client.get(f"{page_url}/open/{fingerprint}")
+    assert launch.status_code == 409
+    assert b"One-click preload requires a publicly reachable HTTPS address" in launch.data
+    assert client.get(f"{page_url}/open/{fingerprint}", base_url="https://localhost").status_code == 409
 
 
 def test_atlas_build_requires_csrf_when_protection_is_enabled(tmp_path: Path):

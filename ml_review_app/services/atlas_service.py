@@ -21,7 +21,7 @@ from sklearn.neighbors import NearestNeighbors
 
 
 ATLAS_VERSION = "0.22.0"
-ATLAS_SCHEMA_VERSION = 1
+ATLAS_SCHEMA_VERSION = 2
 ATLAS_DIRECTORY = "evidence_atlas"
 ATLAS_MANIFEST = "manifest.json"
 EMBEDDINGS_KEY = "embeddings"
@@ -52,10 +52,9 @@ TEXT_COLUMNS = (
 NUMERIC_COLUMNS = ("Year", "Cluster")
 ARTIFACT_SCHEMA = (
     ("atlas_id", "string"),
-    ("embedding", "list<float64>"),
     ("atlas_x", "float64"),
     ("atlas_y", "float64"),
-    ("neighbors", "struct<ids:list<string>,distances:list<float64>>"),
+    ("neighbors", "struct<ids:list<int64>,distances:list<float64>>"),
     ("search_text", "string"),
     *((name, "string") for name in TEXT_COLUMNS),
     *((name, "int64") for name in NUMERIC_COLUMNS),
@@ -257,7 +256,7 @@ def _projection(vectors: np.ndarray) -> tuple[np.ndarray, int]:
     return coordinates, effective_neighbors
 
 
-def _neighbors(vectors: np.ndarray, identifiers: list[str]) -> list[dict[str, list[Any]]]:
+def _neighbors(vectors: np.ndarray) -> list[dict[str, list[Any]]]:
     count = len(vectors)
     if count == 1:
         return [{"ids": [], "distances": []}]
@@ -267,7 +266,7 @@ def _neighbors(vectors: np.ndarray, identifiers: list[str]) -> list[dict[str, li
     result: list[dict[str, list[Any]]] = []
     for row_index, (row_distances, row_indices) in enumerate(zip(distances, indices, strict=True)):
         pairs = [
-            (float(distance), identifiers[int(neighbor_index)])
+            (float(distance), int(neighbor_index))
             for distance, neighbor_index in zip(row_distances, row_indices, strict=True)
             if int(neighbor_index) != row_index and math.isfinite(float(distance))
         ]
@@ -327,7 +326,6 @@ def _year_value(row: pd.Series) -> int | None:
 
 def _artifact_rows(
     frame: pd.DataFrame,
-    vectors: np.ndarray,
     identifiers: list[str],
     coordinates: np.ndarray,
     neighbors: list[dict[str, list[Any]]],
@@ -358,7 +356,6 @@ def _artifact_rows(
         title = _clean_text(_first_value(row, ("Title", "title")))
         abstract = _clean_text(_first_value(row, ("Abstract", "abstract")))
         columns["atlas_id"].append(identifier)
-        columns["embedding"].append(vectors[position].tolist())
         columns["atlas_x"].append(float(coordinates[position, 0]))
         columns["atlas_y"].append(float(coordinates[position, 1]))
         columns["neighbors"].append(neighbors[position])
@@ -388,7 +385,7 @@ def _arrow_table(columns: dict[str, list[Any]]) -> pa.Table:
     arrays: dict[str, pa.Array] = {}
     neighbor_type = pa.struct(
         [
-            pa.field("ids", pa.list_(pa.string())),
+            pa.field("ids", pa.list_(pa.int64())),
             pa.field("distances", pa.list_(pa.float64())),
         ]
     )
@@ -397,8 +394,6 @@ def _arrow_table(columns: dict[str, list[Any]]) -> pa.Table:
             arrays[name] = pa.array(columns[name], type=pa.string())
         elif kind == "int64":
             arrays[name] = pa.array(columns[name], type=pa.int64())
-        elif name == "embedding":
-            arrays[name] = pa.array(columns[name], type=pa.list_(pa.float64()))
         elif name == "neighbors":
             arrays[name] = pa.array(columns[name], type=neighbor_type)
         else:
@@ -450,14 +445,13 @@ def build_atlas(project_path: Path, project_manifest: dict[str, Any]) -> dict[st
     vectors = _validated_vectors(frame)
     identifiers = _stable_ids(frame)
     coordinates, effective_neighbors = _projection(vectors)
-    neighbor_values = _neighbors(vectors, identifiers)
+    neighbor_values = _neighbors(vectors)
     files = project_manifest.get("files", {})
     cluster_maps = _read_optional_metadata(project_path, files.get("labeled_clusters"))
     screening_maps = _read_optional_metadata(project_path, files.get("ai_screening_full_results"))
     table = _arrow_table(
         _artifact_rows(
             frame,
-            vectors,
             identifiers,
             coordinates,
             neighbor_values,

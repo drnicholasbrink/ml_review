@@ -28,12 +28,10 @@ ML_REVIEW_PORT=5055 docker compose up --build
 
 ```bash
 pip install -r requirements_.txt
-npm ci
-npm run build:atlas
 flask --app wsgi:app run --debug
 ```
 
-The local frontend build requires Node.js 22. Docker builds the pinned Atlas bundle automatically and installs the exact tested Python set from `requirements_app.lock`; notebook/development setup continues to use `environment.yml` or `requirements_.txt`.
+No Node.js frontend build is required. Docker installs the exact tested Python set from `requirements_app.lock`; notebook/development setup continues to use `environment.yml` or `requirements_.txt`.
 
 ## Workflow
 
@@ -41,7 +39,7 @@ The local frontend build requires Node.js 22. Docker builds the pinned Atlas bun
 - Save a PubMed search strategy and inclusion/exclusion criteria.
 - Fetch real PubMed records, or upload, map, normalize, and deduplicate a CSV.
 - Generate resumable OpenAI embeddings.
-- Optionally build a reproducible Evidence Atlas from every embedded record for local search, cross-filtering, nearest-neighbour inspection, and selection export. Atlas browser state is project/fingerprint scoped and does not change clustering or screening selections.
+- Optionally build a reproducible, slim Evidence Atlas artifact with precomputed UMAP coordinates and cosine neighbors, then open it in Apple's official Embedding Atlas with the projection, search text, and neighbors already mapped. A direct Parquet download remains available. Atlas exploration does not change clustering or screening selections.
 - Analyze WCSS before choosing K for every root or child projection, then create reproducible t-SNE/K-Means runs in an immutable branch tree with parent navigation and clickable abstract inspection.
 - Select clusters and run resumable OpenAI Structured Outputs screening.
 - Review source abstracts and AI rationales in a paginated adjudication queue. Human decisions and notes are timestamped, preserve the original AI audit trail, and become the final decisions used downstream.
@@ -55,6 +53,8 @@ AI screening and extraction are decision support. Human reviewers must validate 
 ## Supported deployment profile
 
 The supplied Compose profile is a production-like, single-reviewer workstation deployment. It binds only to `127.0.0.1`, requires a non-default session secret, uses one Gunicorn worker to serialize filesystem-backed project writes, exposes liveness/readiness checks, serves chart code locally, and applies CSRF and browser security headers.
+
+The official Atlas viewer can fetch the generated Parquet artifact directly from a publicly reachable HTTPS deployment. Secure browser pages cannot fetch from this app's local HTTP address, so local development uses the provided download-and-drop handoff. To enable one-click preload in production, set `ML_REVIEW_PUBLIC_BASE_URL` to the externally reachable HTTPS origin, for example `https://reviews.example.org`.
 
 API work runs synchronously in the request process so that incremental CSV resume files remain easy to inspect and recover. Keep the browser tab open during a long call. Multi-user or remotely exposed deployment is outside this profile and requires authentication, an external job queue, shared transactional storage, TLS, and an explicit data-governance review.
 
