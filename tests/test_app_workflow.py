@@ -288,11 +288,34 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
     assert response.status_code == 200
     assert b"Decision counts" in response.data
     assert b"human reviewer" in response.data
+    assert b'id="screening-table"' in response.data
+    assert b"<pre>[{" not in response.data
 
     screened = pd.read_csv(project_path / "ai_screening_full_results.csv")
     assert len(screened) == 5
     assert set(screened["ai_decision"]) <= {"include", "exclude", "uncertain"}
     assert screened["ai_confidence"].notna().all()
+
+    evaluation = client.get(f"/projects/{project_id}/evaluation")
+    assert evaluation.status_code == 200
+    assert b"Screening funnel" in evaluation.data
+    assert b'id="criteria-chart"' in evaluation.data
+    human_reference = pd.DataFrame(
+        {"Title": screened["Title"], "status": ["include"] + ["exclude"] * (len(screened) - 1)}
+    ).to_csv(index=False).encode()
+    human_evaluation = client.post(
+        f"/projects/{project_id}/evaluation",
+        data={
+            "human_screening_csv": (BytesIO(human_reference), "human-screening.csv"),
+            "threshold": "85",
+            "uncertain_is_positive": "on",
+        },
+        content_type="multipart/form-data",
+    )
+    assert human_evaluation.status_code == 302
+    evaluation_page = client.get(f"/projects/{project_id}/evaluation")
+    assert b"Human-reference metrics" in evaluation_page.data
+    assert b"Download comparison CSV" in evaluation_page.data
 
     download = client.get(f"/projects/{project_id}/exports/ai_screening_full_results.csv")
     assert download.status_code == 200

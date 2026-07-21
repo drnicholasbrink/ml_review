@@ -27,6 +27,66 @@
   </form>
   {% if not source_ready %}<p class="page-intro">Select or deduplicate records before screening.</p>{% endif %}
 </section>
-{% if manifest.screening_decision_counts %}<section class="card"><h2>Decision counts</h2><pre>{{ manifest.screening_decision_counts }}</pre><a class="button" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='ai_screening_full_results.csv') }}">Download screening CSV</a></section>{% endif %}
-{% if rows %}<section class="card"><h2>Preview</h2><pre>{{ rows }}</pre></section>{% endif %}
+{% if manifest.screening_decision_counts %}
+<section class="card">
+  <h2>Decision counts</h2>
+  <div class="summary-cards">
+    {% for decision, count in manifest.screening_decision_counts.items() %}<div class="summary-card"><strong>{{ count }}</strong><span>{{ decision | title }}</span></div>{% endfor %}
+  </div>
+  <div class="form-actions">
+    <a class="button" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='ai_screening_full_results.csv') }}">Download screening CSV</a>
+    <a class="button secondary" href="{{ url_for('evaluation.evaluation', project_id=manifest.project_id) }}">Open evaluation dashboard</a>
+  </div>
+</section>
+{% endif %}
+{% if rows %}
+<section class="card">
+  <div class="section-heading">
+    <div><h2>Screening results</h2><p class="page-intro">Showing up to 250 records. Filter the table or open a rationale without leaving the page.</p></div>
+    <label class="table-search">Search <input id="screening-search" type="search" placeholder="Title, ID, decision, reason…"></label>
+  </div>
+  <div class="table-scroll">
+    <table id="screening-table" class="data-table">
+      <thead><tr><th><button type="button" class="table-sort" data-column="0">Record ↕</button></th><th><button type="button" class="table-sort" data-column="1">Decision ↕</button></th><th><button type="button" class="table-sort" data-column="2">Confidence ↕</button></th><th>Population</th><th>Exposure</th><th>Outcome</th><th>Design</th><th><button type="button" class="table-sort" data-column="7">Reason and rationale ↕</button></th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr data-search="{{ [row.RecordID, row.PMID, row.Title, row.ai_decision, row.ai_confidence, row.ai_exclusion_reason, row.ai_reasoning] | join(' ') | lower }}">
+          <td><strong>{{ row.Title or 'Untitled record' }}</strong><small>{{ row.PMID or row.RecordID }}</small>{% if row.ai_input_truncated %}<span class="status-pill blocked">Excerpt used</span>{% endif %}</td>
+          <td><span class="decision-badge {{ row.ai_decision }}">{{ row.ai_decision | title }}</span></td>
+          <td>{{ row.ai_confidence | title }}</td>
+          <td class="instrument {{ 'match' if row.ai_population_match else 'miss' }}">{{ '✓' if row.ai_population_match else '—' }}</td>
+          <td class="instrument {{ 'match' if row.ai_exposure_match else 'miss' }}">{{ '✓' if row.ai_exposure_match else '—' }}</td>
+          <td class="instrument {{ 'match' if row.ai_outcome_match else 'miss' }}">{{ '✓' if row.ai_outcome_match else '—' }}</td>
+          <td class="instrument {{ 'match' if row.ai_study_design_appropriate else 'miss' }}">{{ '✓' if row.ai_study_design_appropriate else '—' }}</td>
+          <td>{% if row.ai_exclusion_reason %}<strong>{{ row.ai_exclusion_reason | replace('_', ' ') | title }}</strong>{% endif %}<details><summary>View rationale</summary><p>{{ row.ai_reasoning }}</p></details></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p id="screening-table-count" class="page-intro"></p>
+</section>
+<script>
+const screeningSearch = document.getElementById('screening-search');
+const screeningRows = [...document.querySelectorAll('#screening-table tbody tr')];
+const screeningCount = document.getElementById('screening-table-count');
+function filterScreeningTable() {
+  const query = screeningSearch.value.trim().toLowerCase();
+  let visible = 0;
+  screeningRows.forEach(row => { const show = !query || row.dataset.search.includes(query); row.hidden = !show; if (show) visible += 1; });
+  screeningCount.textContent = `${visible} of ${screeningRows.length} preview records shown`;
+}
+screeningSearch.addEventListener('input', filterScreeningTable);
+document.querySelectorAll('#screening-table .table-sort').forEach(button => button.addEventListener('click', () => {
+  const column = Number(button.dataset.column);
+  const ascending = button.dataset.direction !== 'asc';
+  screeningRows.sort((left, right) => left.cells[column].innerText.trim().localeCompare(right.cells[column].innerText.trim(), undefined, {numeric:true}) * (ascending ? 1 : -1));
+  screeningRows.forEach(row => row.parentElement.appendChild(row));
+  document.querySelectorAll('#screening-table .table-sort').forEach(item => delete item.dataset.direction);
+  button.dataset.direction = ascending ? 'asc' : 'desc';
+  filterScreeningTable();
+}));
+filterScreeningTable();
+</script>
+{% endif %}
 {% endblock %}

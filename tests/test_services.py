@@ -6,6 +6,7 @@ import pandas as pd
 from ml_review_app.services.clustering_service import cluster_csv
 from ml_review_app.services.deduplication_service import deduplicate_records, normalize_text
 from ml_review_app.services.embedding_service import MAX_EMBEDDING_TEXT_LENGTH, add_embeddings
+from ml_review_app.services.evaluation_service import build_screening_evaluation, compare_with_human
 from ml_review_app.services.import_service import build_column_mapping, normalize_records, profile_csv
 from ml_review_app.services.screening_service import MAX_SCREENING_RECORD_LENGTH, ScreeningDecision, screen_csv
 
@@ -201,3 +202,38 @@ def test_parse_pubmed_xml_rejects_malformed_response():
 
     with pytest.raises(PubMedResponseError, match="malformed"):
         parse_pubmed_xml("<PubmedArticleSet>")
+
+
+def test_screening_evaluation_and_human_comparison():
+    screened = pd.DataFrame(
+        {
+            "Title": ["Heat and pregnancy", "Air pollution study", "Animal experiment"],
+            "ai_decision": ["include", "uncertain", "exclude"],
+            "ai_confidence": ["high", "low", "high"],
+            "ai_exclusion_reason": [None, None, "animal_study"],
+            "ai_population_match": [True, True, False],
+            "ai_exposure_match": [True, True, True],
+            "ai_outcome_match": [True, False, True],
+            "ai_study_design_appropriate": [True, True, False],
+            "TSNE_1": [1.0, 2.0, 3.0],
+            "TSNE_2": [3.0, 2.0, 1.0],
+        }
+    )
+    evaluation = build_screening_evaluation(screened)
+    assert evaluation["funnel"]["values"] == [3, 2, 1]
+    assert evaluation["manual_review_count"] == 1
+    assert evaluation["exclusion_reasons"] == [{"reason": "animal_study", "count": 1}]
+    assert len(evaluation["tsne_points"]) == 3
+
+    human = pd.DataFrame(
+        {
+            "Title": ["Heat & Pregnancy", "Air pollution study", "Animal experiment"],
+            "status": ["include", "exclude", "exclude"],
+        }
+    )
+    metrics, comparison = compare_with_human(screened, human, uncertain_is_positive=True)
+    assert metrics["matched_records"] == 3
+    assert metrics["true_positives"] == 1
+    assert metrics["false_positives"] == 1
+    assert metrics["true_negatives"] == 1
+    assert len(comparison) == 3

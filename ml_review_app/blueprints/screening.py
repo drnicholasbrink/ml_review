@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pandas as pd
 from flask import Blueprint, current_app, render_template, request
 from openai import OpenAIError
 
@@ -11,6 +12,22 @@ from ..services.screening_service import screen_csv
 from ..services.validation_service import validate_text
 
 bp = Blueprint("screening", __name__, url_prefix="/projects/<project_id>/screening")
+
+
+def _preview_rows(df):
+    columns = [
+        "RecordID", "PMID", "Title", "ai_decision", "ai_confidence", "ai_exclusion_reason",
+        "ai_population_match", "ai_exposure_match", "ai_outcome_match", "ai_study_design_appropriate",
+        "ai_reasoning", "ai_input_truncated",
+    ]
+    preview = df[[column for column in columns if column in df.columns]].head(250).copy()
+    for column in (
+        "ai_population_match", "ai_exposure_match", "ai_outcome_match",
+        "ai_study_design_appropriate", "ai_input_truncated",
+    ):
+        if column in preview:
+            preview[column] = preview[column].fillna(False).astype(str).str.lower().isin({"true", "1", "yes"})
+    return preview.fillna("").to_dict(orient="records")
 
 
 @bp.route("", methods=["GET", "POST"])
@@ -60,7 +77,7 @@ def screening(project_id: str):
                 manifest["screening_model"] = model
                 manifest["openai_key_source"] = key_source
                 save_manifest(path, manifest)
-                rows = df.head(100).to_dict(orient="records")
+                rows = _preview_rows(df)
             except ValueError as exc:
                 error = str(exc)
             except OpenAIError:
@@ -68,4 +85,8 @@ def screening(project_id: str):
                 error = "OpenAI screening failed. Check the key, account access, and record content, then try again."
         if error:
             return render_template("screening.html", manifest=manifest, criteria=criteria, rows=rows, error=error, source_ready=source_ready, fallback_available=fallback_available), 400
+    if rows is None:
+        results_name = manifest.get("files", {}).get("ai_screening_full_results")
+        if results_name and (path / results_name).exists():
+            rows = _preview_rows(pd.read_csv(path / results_name))
     return render_template("screening.html", manifest=manifest, criteria=criteria, rows=rows, error=error, source_ready=source_ready, fallback_available=fallback_available)

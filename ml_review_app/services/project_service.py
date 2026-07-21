@@ -105,6 +105,10 @@ def invalidate_outputs(manifest: dict[str, Any], stage: str) -> None:
         files.pop(key, None)
     for key in metadata_keys:
         manifest.pop(key, None)
+    if "ai_screening_full_results" in file_keys:
+        for key in ("human_evaluation_metrics", "human_evaluation_comparison"):
+            files.pop(key, None)
+        manifest.pop("human_evaluation", None)
 
 
 def list_projects(runtime_dir: Path) -> list[dict[str, Any]]:

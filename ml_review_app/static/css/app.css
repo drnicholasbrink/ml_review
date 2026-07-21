@@ -67,6 +67,34 @@ th, td { border-bottom: 1px solid #e5e7eb; padding: .6rem; text-align: left; ver
 .record-meta { color: #475569; }
 .action-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
 .cluster-options { display: flex; flex-wrap: wrap; gap: .65rem 1rem; }
+.summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: .75rem; margin: 1rem 0; }
+.summary-card { display: grid; gap: .15rem; padding: 1rem; border: 1px solid #dbe3ef; border-radius: 14px; background: white; }
+.summary-card strong { font-size: 1.75rem; }
+.summary-card span { color: #64748b; font-weight: 700; }
+.summary-card.include { border-color: #86efac; background: #f0fdf4; }
+.summary-card.uncertain { border-color: #fdba74; background: #fff7ed; }
+.summary-card.exclude { border-color: #fca5a5; background: #fef2f2; }
+.table-scroll { width: 100%; overflow-x: auto; }
+.data-table { min-width: 980px; }
+.data-table td small { display: block; margin-top: .25rem; color: #64748b; }
+.data-table details { margin-top: .4rem; max-width: 420px; }
+.data-table summary { color: #2563eb; cursor: pointer; font-weight: 700; }
+.table-search { min-width: min(320px, 100%); }
+.table-sort { padding: 0; border-radius: 0; color: inherit; background: transparent; text-align: left; }
+.table-sort:hover { color: #2563eb; }
+.instrument { text-align: center; font-size: 1.2rem; font-weight: 900; }
+.instrument.match { color: #15803d; }
+.instrument.miss { color: #94a3b8; }
+.decision-badge { display: inline-block; padding: .25rem .55rem; border-radius: 999px; font-size: .78rem; font-weight: 900; }
+.decision-badge.include { color: #166534; background: #dcfce7; }
+.decision-badge.uncertain { color: #9a3412; background: #ffedd5; }
+.decision-badge.exclude { color: #991b1b; background: #fee2e2; }
+.evaluation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.chart-card { min-width: 0; }
+.chart-card h2 { margin-bottom: .25rem; }
+.chart-wide { grid-column: 1 / -1; }
+.plot { min-height: 390px; }
+.plot-tall { min-height: 650px; }
 
 @media (max-width: 860px) {
   .topbar { padding: 1rem; }
@@ -76,4 +104,6 @@ th, td { border-bottom: 1px solid #e5e7eb; padding: .6rem; text-align: left; ver
   .workflow-nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
   .explorer-grid { grid-template-columns: 1fr; }
   .section-heading { display: block; }
+  .evaluation-grid { grid-template-columns: 1fr; }
+  .chart-wide { grid-column: auto; }
 }

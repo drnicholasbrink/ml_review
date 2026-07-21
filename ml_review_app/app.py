@@ -24,6 +24,7 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
     from .blueprints.embeddings import bp as embeddings_bp
     from .blueprints.clustering import bp as clustering_bp
     from .blueprints.screening import bp as screening_bp
+    from .blueprints.evaluation import bp as evaluation_bp
     from .blueprints.exports import bp as exports_bp
 
     app.register_blueprint(main_bp)
@@ -33,6 +34,7 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
     app.register_blueprint(embeddings_bp)
     app.register_blueprint(clustering_bp)
     app.register_blueprint(screening_bp)
+    app.register_blueprint(evaluation_bp)
     app.register_blueprint(exports_bp)
 
     @app.context_processor

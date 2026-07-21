@@ -108,4 +108,14 @@ def build_workflow_steps(project_path: Path, manifest: dict[str, Any]) -> list[d
             "complete": screening_ready,
             "blocked_reason": "Select records and save inclusion criteria first.",
         },
+        {
+            "id": "evaluation",
+            "number": "7",
+            "title": "Evaluation",
+            "description": "Explore screening instruments and compare with human decisions.",
+            "endpoint": "evaluation.evaluation",
+            "enabled": screening_ready,
+            "complete": screening_ready,
+            "blocked_reason": "Run screening first.",
+        },
     ]
