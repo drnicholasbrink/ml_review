@@ -17,7 +17,7 @@ The review exercised the complete interface with a real PubMed query bounded to 
 | CSV import | Column mappings persist across validation and revisit; long fields remain reviewable. |
 | Deduplication | Summary counts and a persistent duplicate audit table identify retained and removed records. |
 | Embeddings | Model, truncation, dimensions, and progress provenance are visible; runs resume safely. |
-| Evidence Atlas | The accelerated worker is attempted first; a same-data compatible explorer handles unsupported browsers with search, filters, details, neighbors, and CSV export. |
+| Evidence Atlas | Python precomputes deterministic UMAP coordinates and cosine neighbors in a slim Parquet artifact. The interface opens Apple's official Embedding Atlas with the data URL and column settings preloaded, and offers a download-and-drop fallback for network-restricted browsers. |
 | Clustering | WCSS-first root/child branches, deterministic settings, source details, DOI/PubMed links, and selection history were exercised. |
 | Screening | Original AI fields remain immutable; human decisions, notes, timestamps, final-decision source, paging, filtering, and reviewed export are available. |
 | Evaluation | Funnel, Sankey, confidence, criterion, exclusion, t-SNE, human-reference metrics, and downloadable mismatches were checked. |

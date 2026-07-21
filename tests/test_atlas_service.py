@@ -63,6 +63,7 @@ def test_tiny_datasets_use_deterministic_projection_fallbacks(tmp_path: Path, ve
     assert np.asarray([table["atlas_x"], table["atlas_y"]]).T.tolist() == expected
     assert len(table["neighbors"]) == len(vectors)
     assert all(len(value["ids"]) == max(0, len(vectors) - 1) for value in table["neighbors"])
+    assert "embedding" not in table
 
 
 def test_umap_and_neighbor_artifact_is_deterministic_and_reused(tmp_path: Path):
@@ -84,8 +85,9 @@ def test_umap_and_neighbor_artifact_is_deterministic_and_reused(tmp_path: Path):
     assert reused["reused"] is True
     assert np.allclose(first_table["atlas_x"], second_table["atlas_x"])
     assert np.allclose(first_table["atlas_y"], second_table["atlas_y"])
-    for identifier, neighbors in zip(first_table["atlas_id"], first_table["neighbors"], strict=True):
-        assert identifier not in neighbors["ids"]
+    for row_index, neighbors in enumerate(first_table["neighbors"]):
+        assert row_index not in neighbors["ids"]
+        assert all(isinstance(identifier, int) for identifier in neighbors["ids"])
         assert neighbors["distances"] == sorted(neighbors["distances"])
         assert len(neighbors["ids"]) == 4
 
