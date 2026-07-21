@@ -13,3 +13,5 @@ flask
 flask-wtf
 gunicorn
 pytest
+pyarrow
+umap-learn

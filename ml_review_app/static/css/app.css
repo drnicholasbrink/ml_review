@@ -148,6 +148,16 @@ th, td { border-bottom: 1px solid #e5e7eb; padding: .65rem; text-align: left; ve
 .plot { min-height: 390px; }
 .plot-tall { min-height: 650px; }
 .js-plotly-plot, .plot-container, .svg-container { max-width: 100% !important; }
+.atlas-page { width: 100%; }
+.workflow-layout.atlas-layout { max-width: 1920px; grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); }
+.atlas-provenance { display: flex; flex-wrap: wrap; gap: .55rem; margin-bottom: 1rem; }
+.atlas-provenance span { padding: .45rem .7rem; border: 1px solid #cbd5e1; border-radius: 999px; color: #334155; background: white; font-size: .82rem; }
+.atlas-state { max-width: 760px; margin-inline: auto; text-align: center; }
+.atlas-state h2 { margin-top: 0; }
+.atlas-state code { display: inline-block; padding: .75rem 1rem; border-radius: 10px; color: #dbeafe; background: #0f172a; }
+.atlas-shell { width: 100%; padding: 0; overflow: hidden; }
+.atlas-workspace { width: 100%; min-height: 72vh; background: white; }
+.atlas-workspace > * { max-width: 100%; }
 
 @media (max-width: 860px) {
   .topbar { padding: 1rem; }

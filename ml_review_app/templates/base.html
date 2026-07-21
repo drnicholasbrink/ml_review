@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}ML Review{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
-  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  {% block head_scripts %}<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>{% endblock %}
 </head>
 <body>
   <header class="topbar">
@@ -15,7 +15,7 @@
       <a href="{{ url_for('projects.projects_index') }}">Projects</a>
     </nav>
   </header>
-  <main class="container{% if workflow_steps %} workflow-layout{% endif %}">
+  <main class="container{% if workflow_steps %} workflow-layout{% endif %}{% if request.endpoint == 'atlas.atlas' %} atlas-layout{% endif %}">
     {% if workflow_steps %}
     <aside class="workflow-sidebar" aria-label="Review workflow">
       <div class="workflow-sidebar-heading">

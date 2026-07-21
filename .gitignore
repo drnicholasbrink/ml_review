@@ -32,3 +32,5 @@ scripts/.DS_Store
 
 # Flask app runtime projects/uploads
 runtime/
+node_modules/
+ml_review_app/static/atlas/

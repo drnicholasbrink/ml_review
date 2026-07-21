@@ -10,6 +10,8 @@
 pubmed_ids.json
 pubmed_results*.csv
 runtime/
+node_modules/
+ml_review_app/static/atlas/
 secret_keys.py
 **/secret_keys.py
 scripts/secret_keys.py

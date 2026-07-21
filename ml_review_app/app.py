@@ -22,6 +22,7 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
     from .blueprints.pubmed import bp as pubmed_bp
     from .blueprints.imports import bp as imports_bp
     from .blueprints.embeddings import bp as embeddings_bp
+    from .blueprints.atlas import bp as atlas_bp
     from .blueprints.clustering import bp as clustering_bp
     from .blueprints.screening import bp as screening_bp
     from .blueprints.evaluation import bp as evaluation_bp
@@ -32,6 +33,7 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
     app.register_blueprint(pubmed_bp)
     app.register_blueprint(imports_bp)
     app.register_blueprint(embeddings_bp)
+    app.register_blueprint(atlas_bp)
     app.register_blueprint(clustering_bp)
     app.register_blueprint(screening_bp)
     app.register_blueprint(evaluation_bp)

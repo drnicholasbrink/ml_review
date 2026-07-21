@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Evidence Atlas · ML Review{% endblock %}
+{% block head_scripts %}{% endblock %}
+{% block content %}
+<div class="atlas-page">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Optional exploration</p>
+      <h1>{{ manifest.name }} · Evidence Atlas</h1>
+      <p class="page-intro">Search, filter, and inspect the full embedding space. Atlas selections stay in this browser and never change screening or clustering inputs.</p>
+    </div>
+    <a class="button secondary" href="{{ url_for('projects.dashboard', project_id=manifest.project_id) }}">Project overview</a>
+  </div>
+
+  {% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+
+  {% if atlas_status.state == 'unavailable' %}
+    <section class="card atlas-state">
+      <h2>Embeddings required</h2>
+      <p>{{ atlas_status.message }}</p>
+      <a class="button" href="{{ url_for('embeddings.embeddings', project_id=manifest.project_id) }}">Go to embeddings</a>
+    </section>
+  {% elif atlas_status.state == 'empty' %}
+    <section class="card atlas-state">
+      <h2>No embedded records</h2>
+      <p>{{ atlas_status.message }} Regenerate embeddings after adding records to the project.</p>
+      <a class="button" href="{{ url_for('embeddings.embeddings', project_id=manifest.project_id) }}">Go to embeddings</a>
+    </section>
+  {% elif not atlas_status.assets_ready %}
+    <section class="card atlas-state" role="alert">
+      <h2>Atlas frontend is not built</h2>
+      <p>Build the local browser bundle before opening this workspace.</p>
+      <code>npm ci &amp;&amp; npm run build:atlas</code>
+    </section>
+  {% elif atlas_status.state == 'not_built' %}
+    <section class="card atlas-state">
+      <h2>Build the Evidence Atlas</h2>
+      <p>This creates a deterministic UMAP projection and nearest-neighbor index from every stored embedding. It does not call an external API.</p>
+      <form method="post" action="{{ url_for('atlas.build', project_id=manifest.project_id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit">Build evidence atlas</button>
+      </form>
+    </section>
+  {% elif atlas_status.state == 'stale' %}
+    <section class="card atlas-state" role="status">
+      <h2>The Atlas is out of date</h2>
+      <p>The embeddings or linked cluster/screening metadata changed after the current artifact was built.</p>
+      <form method="post" action="{{ url_for('atlas.build', project_id=manifest.project_id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit">Rebuild evidence atlas</button>
+      </form>
+    </section>
+  {% else %}
+    {% set atlas = atlas_status.record %}
+    <section class="atlas-provenance" aria-label="Atlas provenance">
+      <span><strong>{{ atlas.rows }}</strong> records</span>
+      <span><strong>{{ atlas.embedding_dimension }}</strong> dimensions</span>
+      <span>UMAP cosine · seed 42</span>
+      <span>{{ atlas.parameters.neighbors }} nearest neighbors</span>
+      <span>Atlas {{ atlas.atlas_version }}</span>
+    </section>
+    <section class="card atlas-shell">
+      <div id="atlas-loading" class="atlas-state" role="status">
+        <h2>Loading Evidence Atlas…</h2>
+        <p>Starting the local analytical engine and opening the project artifact.</p>
+      </div>
+      <div id="atlas-unsupported" class="atlas-state" hidden role="alert">
+        <h2>This browser cannot run Evidence Atlas</h2>
+        <p>Use a current browser with WebAssembly, Web Workers, and WebGL 2 support.</p>
+      </div>
+      <div id="atlas-error" class="atlas-state" hidden role="alert">
+        <h2>Evidence Atlas could not start</h2>
+        <p id="atlas-error-message">Reload the page and try again.</p>
+      </div>
+      <div
+        id="atlas-root"
+        class="atlas-workspace"
+        hidden
+        data-table="evidence_atlas"
+        data-url="{{ url_for('atlas.data', project_id=manifest.project_id, fingerprint=atlas.fingerprint) }}"
+        data-storage-key="ml-review-atlas:{{ manifest.project_id }}:{{ atlas.fingerprint }}"
+      ></div>
+    </section>
+    <script type="module" src="{{ url_for('static', filename='atlas/atlas.js') }}"></script>
+  {% endif %}
+</div>
+{% endblock %}

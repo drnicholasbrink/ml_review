@@ -30,6 +30,8 @@ def build_workflow_steps(project_path: Path, manifest: dict[str, Any]) -> list[d
         for key in ("deduplicated_records", "normalized_records", "pubmed_results_complete")
     )
     embeddings_ready = file_ready("embeddings")
+    atlas_manifest = project_path / "evidence_atlas" / "manifest.json"
+    atlas_ready = atlas_manifest.is_file()
     clusters_ready = file_ready("labeled_clusters")
     screening_source_ready = any(
         files.get(key) and (project_path / files[key]).exists()
@@ -87,6 +89,16 @@ def build_workflow_steps(project_path: Path, manifest: dict[str, Any]) -> list[d
             "enabled": record_source_ready,
             "complete": embeddings_ready,
             "blocked_reason": "Fetch PubMed records or prepare a CSV first.",
+        },
+        {
+            "id": "atlas",
+            "number": "4B",
+            "title": "Evidence Atlas",
+            "description": "Explore every embedded record without changing workflow selections.",
+            "endpoint": "atlas.atlas",
+            "enabled": embeddings_ready,
+            "complete": atlas_ready,
+            "blocked_reason": "Generate embeddings first.",
         },
         {
             "id": "clustering",
