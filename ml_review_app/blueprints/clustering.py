@@ -9,6 +9,7 @@ from ..services.clustering_service import (
     activate_run,
     analyze_clustering_source,
     analyze_subclustering,
+    build_cluster_search,
     finalize_clustering_draft,
     get_run,
     load_clustering_state,
@@ -47,12 +48,15 @@ def _view_data(path, manifest):
     state = load_clustering_state(path)
     active_run = get_run(state)
     rows = None
-    clusters = []
+    cluster_summaries = []
     if active_run and (path / active_run["output_file"]).exists():
         df = pd.read_csv(path / active_run["output_file"])
         rows = df[["PointID", "TSNE_1", "TSNE_2", "Cluster", "Title", "RecordID"]].fillna("").to_dict(orient="records")
-        clusters = sorted(int(value) for value in df["Cluster"].unique())
-    return state, active_run, state.get("draft"), rows, clusters
+        cluster_summaries = [
+            {"cluster": int(cluster), "size": int(size)}
+            for cluster, size in df.groupby("Cluster", sort=True).size().items()
+        ]
+    return state, active_run, state.get("draft"), rows, cluster_summaries
 
 
 @bp.route("", methods=["GET", "POST"])
@@ -82,7 +86,7 @@ def clustering(project_id: str):
             )
         except ValueError as exc:
             error = str(exc)
-    state, active_run, draft, rows, clusters = _view_data(path, manifest)
+    state, active_run, draft, rows, cluster_summaries = _view_data(path, manifest)
     status_code = 400 if error else 200
     return render_template(
         "clustering.html",
@@ -92,9 +96,31 @@ def clustering(project_id: str):
         draft=draft,
         scores=active_run["elbow_scores"] if active_run else None,
         rows=rows,
-        clusters=clusters,
+        cluster_summaries=cluster_summaries,
         error=error,
     ), status_code
+
+
+@bp.get("/search")
+def search(project_id: str):
+    path = project_dir(current_app.config["RUNTIME_DIR"], project_id)
+    active = get_run(load_clustering_state(path))
+    if active is None:
+        return jsonify({"error": "Run clustering before searching the cluster explorer"}), 404
+    output_path = path / active["output_file"]
+    if not output_path.exists():
+        return jsonify({"error": "The active clustering run could not be found"}), 404
+    try:
+        result = build_cluster_search(
+            pd.read_csv(output_path),
+            run_id=active["run_id"],
+            raw_keywords=request.args.get("keywords"),
+            match_mode=request.args.get("mode", "any"),
+            study_query=request.args.get("study"),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result)
 
 
 @bp.post("/finalize")

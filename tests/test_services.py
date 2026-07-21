@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from ml_review_app.services.clustering_service import cluster_csv
+from ml_review_app.services.clustering_service import build_cluster_search, cluster_csv, parse_cluster_keywords
 from ml_review_app.services.deduplication_service import deduplicate_records, normalize_text
 from ml_review_app.services.embedding_service import MAX_EMBEDDING_TEXT_LENGTH, add_embeddings
 from ml_review_app.services.evaluation_service import build_screening_evaluation, compare_with_human
@@ -97,6 +97,101 @@ def test_openai_embedding_orchestration_and_clustering(tmp_path: Path):
     assert {"TSNE_1", "TSNE_2", "Cluster"}.issubset(clustered.columns)
     assert len(scores) >= 1
     assert clustered[["TSNE_1", "TSNE_2", "Cluster"]].equals(repeated[["TSNE_1", "TSNE_2", "Cluster"]])
+
+
+def test_cluster_search_uses_document_prevalence_and_normalized_matching():
+    clustered = pd.DataFrame(
+        [
+            {"PointID": "p1", "Cluster": 0, "Title": "Café heat exposure", "Abstract": "Maternal   outcomes after exposure"},
+            {"PointID": "p2", "Cluster": 0, "Title": "Heating systems", "Abstract": None},
+            {"PointID": "p3", "Cluster": 0, "Title": None, "Abstract": "HEAT exposure without maternal outcomes"},
+            {"PointID": "p4", "Cluster": 1, "Title": "Maternal heat exposure in pregnancy", "Abstract": "Birth outcomes"},
+            {"PointID": "p5", "Cluster": 1, "Title": "Air pollution", "Abstract": "Respiratory outcomes"},
+        ]
+    )
+
+    any_result = build_cluster_search(
+        clustered,
+        run_id="run_001",
+        raw_keywords=" HEAT, heat\n maternal   outcomes ",
+        match_mode="any",
+    )
+    assert any_result["keywords"] == ["heat", "maternal outcomes"]
+    assert any_result["keyword_matched_point_ids"] == ["p1", "p3", "p4"]
+    cluster_zero = any_result["clusters"][0]
+    assert cluster_zero["size"] == 3
+    assert cluster_zero["keywords"] == [
+        {"keyword": "heat", "count": 2, "prevalence": 2 / 3, "percentage": 66.7},
+        {"keyword": "maternal outcomes", "count": 2, "prevalence": 2 / 3, "percentage": 66.7},
+    ]
+    assert cluster_zero["combined_count"] == 2
+    assert cluster_zero["combined_percentage"] == 66.7
+
+    all_result = build_cluster_search(
+        clustered,
+        run_id="run_001",
+        raw_keywords="heat, maternal outcomes",
+        match_mode="all",
+    )
+    assert all_result["keyword_matched_point_ids"] == ["p1", "p3"]
+    assert all_result["clusters"][0]["combined_count"] == 2
+    assert all_result["clusters"][1]["combined_count"] == 0
+
+    unicode_result = build_cluster_search(clustered, run_id="run_001", raw_keywords="ＣＡＦÉ")
+    assert unicode_result["keywords"] == ["café"]
+    assert unicode_result["keyword_matched_point_ids"] == ["p1"]
+    assert "p2" not in any_result["keyword_matched_point_ids"]
+
+
+def test_cluster_search_ranks_direct_titles_and_identifier_matches_before_fuzzy_titles():
+    clustered = pd.DataFrame(
+        [
+            {"PointID": "direct", "Cluster": 0, "RecordID": "R-100", "PMID": "12345", "DOI": "10.1/direct", "Title": "Maternal heat exposure review", "Abstract": ""},
+            {"PointID": "fuzzy", "Cluster": 1, "RecordID": "R-200", "PMID": "67890", "DOI": "10.1/fuzzy", "Title": "Review of maternal exposure to heat", "Abstract": ""},
+            {"PointID": "other", "Cluster": 1, "RecordID": "R-201", "PMID": "", "DOI": "", "Title": "Air pollution", "Abstract": ""},
+        ]
+    )
+
+    title_result = build_cluster_search(
+        clustered,
+        run_id="run_title",
+        study_query="maternal heat exposure",
+    )
+    assert [match["point_id"] for match in title_result["study_matches"]][:2] == ["direct", "fuzzy"]
+    assert title_result["study_matches"][0]["match_type"] == "title_substring"
+    assert title_result["study_matches"][1]["match_type"] == "title_fuzzy"
+
+    exact_identifier = build_cluster_search(clustered, run_id="run_id", study_query="10.1/direct")
+    assert exact_identifier["study_matches"][0]["point_id"] == "direct"
+    assert exact_identifier["study_matches"][0]["match_type"] == "identifier_exact"
+    prefix_identifier = build_cluster_search(clustered, run_id="run_id", study_query="R-20")
+    assert {match["point_id"] for match in prefix_identifier["study_matches"]} == {"fuzzy", "other"}
+    assert all(match["match_type"] == "identifier_prefix" for match in prefix_identifier["study_matches"])
+
+
+def test_cluster_search_validation_and_result_cap():
+    import pytest
+
+    clustered = pd.DataFrame(
+        [
+            {"PointID": f"p{index}", "Cluster": index % 2, "Title": f"Shared study title {index}", "Abstract": ""}
+            for index in range(30)
+        ]
+    )
+    result = build_cluster_search(clustered, run_id="run_001", study_query="shared study title")
+    assert len(result["study_matches"]) == 25
+    assert len(result["study_matched_point_ids"]) == 30
+    assert result["keyword_matched_point_ids"] == []
+
+    assert parse_cluster_keywords("Heat, HEAT, heat") == ["heat"]
+    with pytest.raises(ValueError, match="no more than 20"):
+        parse_cluster_keywords(",".join(f"keyword-{index}" for index in range(21)))
+    with pytest.raises(ValueError, match="100 characters"):
+        parse_cluster_keywords("x" * 101)
+    with pytest.raises(ValueError, match="either any or all"):
+        build_cluster_search(clustered, run_id="run_001", match_mode="some")
+    with pytest.raises(ValueError, match="200 characters"):
+        build_cluster_search(clustered, run_id="run_001", study_query="x" * 201)
 
 
 def test_structured_screening_outputs_schema_and_csv(tmp_path: Path):

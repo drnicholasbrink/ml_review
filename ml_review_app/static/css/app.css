@@ -79,6 +79,29 @@ th, td { border-bottom: 1px solid #e5e7eb; padding: .65rem; text-align: left; ve
 .record-meta { color: #475569; }
 .action-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
 .cluster-options { display: flex; flex-wrap: wrap; gap: .65rem 1rem; }
+.cluster-explorer { gap: 1.25rem; }
+.cluster-search-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(180px, .65fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
+.cluster-search-grid textarea { min-height: 7.5rem; }
+.match-mode { min-width: 0; margin: 0; padding: .8rem 1rem; border: 1px solid #cbd5e1; border-radius: 12px; }
+.match-mode legend { padding: 0 .35rem; font-weight: 800; }
+.match-mode .checkbox-label + .checkbox-label { margin-top: .65rem; }
+.match-legend { display: flex; flex-wrap: wrap; gap: .65rem 1rem; color: #475569; font-size: .85rem; font-weight: 700; }
+.match-legend span { display: inline-flex; align-items: center; gap: .4rem; }
+.legend-swatch { display: inline-block; width: .8rem; height: .8rem; border-radius: 50%; background: #94a3b8; }
+.legend-swatch.keyword-match { border-radius: 2px; background: #ea580c; transform: rotate(45deg); }
+.legend-swatch.study-match { background: #7c3aed; }
+.legend-swatch.other-point { opacity: .35; }
+.study-results:empty { display: none; }
+.study-results ol { display: grid; gap: .5rem; margin: 0; padding-left: 1.5rem; }
+.study-result { display: grid; width: 100%; justify-items: start; gap: .2rem; border: 1px solid #dbe3ef; border-radius: 12px; color: #162033; background: #f8fafc; text-align: left; }
+.study-result:hover, .study-result:focus-visible { color: #1d4ed8; background: #eff6ff; }
+.study-result small { color: #64748b; font-weight: 600; }
+.cluster-table { min-width: 760px; }
+.cluster-table th, .cluster-table td { vertical-align: middle; }
+.cluster-table .cluster-select-column { width: 5.5rem; text-align: center; }
+.cluster-table input[type="checkbox"] { width: 1.15rem; height: 1.15rem; }
+.keyword-stat-list { display: grid; gap: .2rem; margin: 0; padding-left: 1.2rem; }
+.combined-prevalence { font-weight: 800; }
 .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: .75rem; margin: 1rem 0; }
 .summary-card { display: grid; gap: .15rem; padding: 1rem; border: 1px solid #dbe3ef; border-radius: 14px; background: white; }
 .summary-card strong { font-size: 1.75rem; }
@@ -133,6 +156,7 @@ th, td { border-bottom: 1px solid #e5e7eb; padding: .65rem; text-align: left; ve
   .workflow-sidebar { position: static; margin-bottom: 1rem; }
   .workflow-nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
   .explorer-grid { grid-template-columns: 1fr; }
+  .cluster-search-grid { grid-template-columns: minmax(0, 1fr); }
   .section-heading { display: block; }
   .evaluation-grid { grid-template-columns: 1fr; }
   .chart-wide { grid-column: auto; }

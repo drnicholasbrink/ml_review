@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import re
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -12,6 +14,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import sklearn
+from rapidfuzz import fuzz
 from sklearn.cluster import KMeans
 from sklearn.manifold import TSNE
 from sklearn.preprocessing import StandardScaler
@@ -21,6 +24,179 @@ RUN_DIRECTORY = Path("visualizations") / "clustering_runs"
 DRAFT_DIRECTORY = Path("visualizations") / "clustering_draft"
 DRAFT_INPUT_FILE = DRAFT_DIRECTORY / "input.csv"
 DRAFT_OUTPUT_FILE = DRAFT_DIRECTORY / "projection.csv"
+MAX_CLUSTER_SEARCH_KEYWORDS = 20
+MAX_CLUSTER_KEYWORD_LENGTH = 100
+MAX_STUDY_SEARCH_LENGTH = 200
+STUDY_SEARCH_LIMIT = 25
+STUDY_FUZZY_THRESHOLD = 60
+
+
+def normalize_search_text(value: object) -> str:
+    """Normalize Unicode, whitespace, and case for deterministic local search."""
+
+    if value is None or (not isinstance(value, (list, tuple, dict, set)) and pd.isna(value)):
+        return ""
+    return " ".join(unicodedata.normalize("NFKC", str(value)).casefold().split())
+
+
+def parse_cluster_keywords(raw_keywords: str | None) -> list[str]:
+    """Parse, validate, normalize, and deduplicate comma/newline-separated terms."""
+
+    keywords: list[str] = []
+    seen: set[str] = set()
+    for raw_keyword in re.split(r"[,\r\n]+", raw_keywords or ""):
+        keyword = normalize_search_text(raw_keyword)
+        if not keyword or keyword in seen:
+            continue
+        if len(keyword) > MAX_CLUSTER_KEYWORD_LENGTH:
+            raise ValueError(f"Each keyword must be {MAX_CLUSTER_KEYWORD_LENGTH} characters or fewer")
+        seen.add(keyword)
+        keywords.append(keyword)
+    if len(keywords) > MAX_CLUSTER_SEARCH_KEYWORDS:
+        raise ValueError(f"Enter no more than {MAX_CLUSTER_SEARCH_KEYWORDS} keywords")
+    return keywords
+
+
+def _keyword_matches(keyword: str, text: str) -> bool:
+    escaped = re.escape(keyword)
+    pattern = rf"(?<!\w){escaped}(?!\w)" if " " not in keyword else escaped
+    return re.search(pattern, text) is not None
+
+
+def _row_text(row: pd.Series, column: str) -> str:
+    return normalize_search_text(row.get(column, ""))
+
+
+def _study_match(row: pd.Series, query: str, fuzzy_threshold: int) -> dict[str, Any] | None:
+    title = _row_text(row, "Title")
+    identifiers = [
+        (label, _row_text(row, label), str(row.get(label, "")))
+        for label in ("PMID", "RecordID", "DOI")
+        if _row_text(row, label)
+    ]
+    exact_identifier = next(((label, display) for label, value, display in identifiers if value == query), None)
+    prefix_identifier = next(((label, display) for label, value, display in identifiers if value.startswith(query)), None)
+    direct_title = bool(title and query in title)
+    fuzzy_score = int(round(fuzz.WRatio(query, title))) if title else 0
+
+    if exact_identifier:
+        priority, match_type, score, identifier = 0, "identifier_exact", 100, exact_identifier[1]
+    elif direct_title:
+        priority, match_type, score = 1, "title_substring", 100
+        identifier = next((display for _label, _value, display in identifiers), "")
+    elif prefix_identifier:
+        priority, match_type, score, identifier = 2, "identifier_prefix", 99, prefix_identifier[1]
+    elif fuzzy_score >= fuzzy_threshold:
+        priority, match_type, score = 3, "title_fuzzy", fuzzy_score
+        identifier = next((display for _label, _value, display in identifiers), "")
+    else:
+        return None
+
+    return {
+        "point_id": str(row["PointID"]),
+        "cluster": int(row["Cluster"]),
+        "title": "" if not title else str(row.get("Title", "")),
+        "identifier": identifier,
+        "match_type": match_type,
+        "match_score": score,
+        "_priority": priority,
+    }
+
+
+def build_cluster_search(
+    df: pd.DataFrame,
+    *,
+    run_id: str,
+    raw_keywords: str | None = None,
+    match_mode: str = "any",
+    study_query: str | None = None,
+    study_limit: int = STUDY_SEARCH_LIMIT,
+    fuzzy_threshold: int = STUDY_FUZZY_THRESHOLD,
+) -> dict[str, Any]:
+    """Build read-only keyword prevalence and ranked study-search results."""
+
+    required = {"PointID", "Cluster"}
+    if not required <= set(df.columns):
+        raise ValueError("The active clustering run is missing point or cluster identifiers")
+    mode = normalize_search_text(match_mode) or "any"
+    if mode not in {"any", "all"}:
+        raise ValueError("Keyword matching must use either any or all")
+    keywords = parse_cluster_keywords(raw_keywords)
+    query = normalize_search_text(study_query)
+    if len(query) > MAX_STUDY_SEARCH_LENGTH:
+        raise ValueError(f"Study search must be {MAX_STUDY_SEARCH_LENGTH} characters or fewer")
+
+    working = df.copy()
+    title_text = working.get("Title", pd.Series("", index=working.index)).map(normalize_search_text)
+    abstract_text = working.get("Abstract", pd.Series("", index=working.index)).map(normalize_search_text)
+    searchable_text = (title_text + " " + abstract_text).str.strip()
+    keyword_masks = {
+        keyword: searchable_text.map(lambda text, term=keyword: _keyword_matches(term, text))
+        for keyword in keywords
+    }
+    if keyword_masks:
+        keyword_frame = pd.DataFrame(keyword_masks, index=working.index)
+        combined_mask = keyword_frame.any(axis=1) if mode == "any" else keyword_frame.all(axis=1)
+    else:
+        combined_mask = pd.Series(False, index=working.index, dtype=bool)
+
+    clusters = []
+    for cluster_value, cluster_rows in working.groupby("Cluster", sort=True):
+        indices = cluster_rows.index
+        size = len(cluster_rows)
+        keyword_stats = []
+        for keyword in keywords:
+            count = int(keyword_masks[keyword].loc[indices].sum())
+            keyword_stats.append(
+                {
+                    "keyword": keyword,
+                    "count": count,
+                    "prevalence": count / size if size else 0.0,
+                    "percentage": round(count / size * 100, 1) if size else 0.0,
+                }
+            )
+        combined_count = int(combined_mask.loc[indices].sum())
+        clusters.append(
+            {
+                "cluster": int(cluster_value),
+                "size": size,
+                "keywords": keyword_stats,
+                "combined_count": combined_count,
+                "combined_prevalence": combined_count / size if size else 0.0,
+                "combined_percentage": round(combined_count / size * 100, 1) if size else 0.0,
+            }
+        )
+
+    study_matches = []
+    if query:
+        for _, row in working.iterrows():
+            match = _study_match(row, query, fuzzy_threshold)
+            if match:
+                study_matches.append(match)
+        study_matches.sort(
+            key=lambda item: (
+                item["_priority"],
+                -item["match_score"],
+                normalize_search_text(item["title"]),
+                item["point_id"],
+            )
+        )
+    study_point_ids = [item["point_id"] for item in study_matches]
+    ranked_matches = []
+    for item in study_matches[:study_limit]:
+        public_item = {key: value for key, value in item.items() if key != "_priority"}
+        ranked_matches.append(public_item)
+
+    return {
+        "run_id": run_id,
+        "keywords": keywords,
+        "match_mode": mode,
+        "study_query": query,
+        "clusters": clusters,
+        "keyword_matched_point_ids": working.loc[combined_mask, "PointID"].astype(str).tolist(),
+        "study_matched_point_ids": study_point_ids,
+        "study_matches": ranked_matches,
+    }
 
 
 def parse_embedding(value: object) -> np.ndarray | None:

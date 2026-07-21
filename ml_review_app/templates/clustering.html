@@ -67,24 +67,73 @@
   </aside>
 </section>
 
-<section class="action-grid">
-  <form method="post" action="{{ url_for('clustering.subcluster', project_id=manifest.project_id) }}" class="card stack">
+<section class="card stack cluster-explorer" id="cluster-explorer">
+  <div>
+    <p class="eyebrow">Exploratory review</p>
+    <h2>Search and compare clusters</h2>
+    <p class="page-intro">Compare document prevalence and find individual studies in the active run. Search never changes the selected clusters.</p>
+  </div>
+
+  <form id="cluster-search-form" class="stack" method="get" action="{{ url_for('clustering.search', project_id=manifest.project_id) }}">
+    <div class="cluster-search-grid">
+      <label>Keywords
+        <textarea id="cluster-keywords" name="keywords" rows="4" placeholder="heat exposure, preterm birth&#10;maternal health"></textarea>
+        <small>Up to 20 comma- or line-separated terms; 100 characters per term.</small>
+      </label>
+      <fieldset class="match-mode">
+        <legend>Keyword matching</legend>
+        <label class="checkbox-label"><input type="radio" name="mode" value="any" checked> Match any keyword</label>
+        <label class="checkbox-label"><input type="radio" name="mode" value="all"> Match all keywords</label>
+      </fieldset>
+      <label>Find a study
+        <input id="study-query" name="study" type="search" maxlength="200" placeholder="Title, PMID, RecordID, or DOI">
+        <small>Direct titles and identifiers are ranked ahead of fuzzy title matches.</small>
+      </label>
+    </div>
+    <div class="form-actions">
+      <button type="submit">Search active run</button>
+      <button type="reset" class="secondary">Clear search</button>
+    </div>
+    <p id="cluster-search-error" class="notice" role="alert" hidden></p>
+    <p id="cluster-search-summary" class="page-intro" aria-live="polite">Enter keywords or a study query to compare this run.</p>
+  </form>
+
+  <div class="match-legend" aria-label="Map search legend">
+    <span><i class="legend-swatch keyword-match"></i> Keyword match</span>
+    <span><i class="legend-swatch study-match"></i> Study match</span>
+    <span><i class="legend-swatch other-point"></i> Other records remain visible</span>
+  </div>
+
+  <div id="study-results" class="study-results" aria-live="polite"></div>
+
+  <form id="cluster-action-form" method="post" action="{{ url_for('clustering.select_clusters', project_id=manifest.project_id) }}" class="stack">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <h2>Create a child branch from {{ active_run.run_id }}</h2>
-    <p class="page-intro">Choose the parent clusters to refine. The next screen shows their WCSS curve before asking for the number of subclusters.</p>
-    <div class="cluster-options">{% for c in clusters %}<label class="checkbox-label"><input type="checkbox" name="clusters" value="{{ c }}"> Cluster {{ c }}</label>{% endfor %}</div>
+    <p class="page-intro">Use one cluster selection for either action. Creating a child branch shows its WCSS curve before asking for the number of subclusters; continuing to screening exports the selected records.</p>
+    <div class="table-scroll">
+      <table class="cluster-table">
+        <thead><tr><th class="cluster-select-column">Select</th><th>Cluster</th><th>Records</th><th>Per-keyword prevalence</th><th>Combined prevalence</th></tr></thead>
+        <tbody>
+        {% for summary in cluster_summaries %}
+          <tr class="cluster-stat-row" data-cluster="{{ summary.cluster }}">
+            <td class="cluster-select-column"><input type="checkbox" name="clusters" value="{{ summary.cluster }}" checked aria-label="Select cluster {{ summary.cluster }}"></td>
+            <td><strong>Cluster {{ summary.cluster }}</strong></td>
+            <td>{{ summary.size }}</td>
+            <td class="keyword-statistics"><span class="page-intro">Run a keyword search</span></td>
+            <td class="combined-prevalence">—</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
     <div class="form-inline">
       <label>Random seed <input type="number" min="0" max="2147483647" name="random_state" value="{{ active_run.random_state }}"></label>
       <label>Perplexity <input type="number" min="0.1" max="1000" step="0.1" name="perplexity" placeholder="Automatic"></label>
     </div>
-    <button type="submit">Analyze child-branch WCSS</button>
-  </form>
-
-  <form method="post" action="{{ url_for('clustering.select_clusters', project_id=manifest.project_id) }}" class="card stack">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <h2>Continue to screening</h2>
-    <div class="cluster-options">{% for c in clusters %}<label class="checkbox-label"><input type="checkbox" name="clusters" value="{{ c }}" checked> Cluster {{ c }}</label>{% endfor %}</div>
-    <button type="submit">Use selected clusters for screening</button>
+    <div class="form-actions">
+      <button type="submit" formaction="{{ url_for('clustering.subcluster', project_id=manifest.project_id) }}">Create child branch</button>
+      <button type="submit" class="secondary">Continue to screening</button>
+    </div>
   </form>
 </section>
 {% endif %}
@@ -101,19 +150,40 @@ Plotly.newPlot('active-elbow', [{x: {{ scores|map(attribute='k')|list|tojson }},
 {% if rows %}
 const rows = {{ rows|tojson }};
 const scatter = document.getElementById('scatter');
-Plotly.newPlot(scatter, [{
-  x: rows.map(row => row.TSNE_1),
-  y: rows.map(row => row.TSNE_2),
-  text: rows.map(row => row.Title || row.RecordID),
-  customdata: rows.map(row => row.PointID),
-  mode: 'markers',
-  type: 'scattergl',
-  marker: {color: rows.map(row => row.Cluster), colorscale: 'Viridis', size: 10, opacity: 0.85},
-  hovertemplate: '%{text}<br>Cluster %{marker.color}<extra></extra>'
-}], responsiveLayout({title: 'Saved t-SNE coordinates', xaxis:{title:'t-SNE 1'}, yaxis:{title:'t-SNE 2'}, margin:{t:55}}), plotConfig);
+const activeRunId = {{ active_run.run_id|tojson }};
+const scatterLayout = responsiveLayout({title: 'Saved t-SNE coordinates', xaxis:{title:'t-SNE 1'}, yaxis:{title:'t-SNE 2'}, margin:{t:55}});
 
-scatter.on('plotly_click', async event => {
-  const pointId = event.points[0].customdata;
+function highlightTrace(points, name, color, symbol) {
+  return {
+    x: points.map(row => row.TSNE_1), y: points.map(row => row.TSNE_2),
+    text: points.map(row => row.Title || row.RecordID), customdata: points.map(row => row.PointID),
+    mode: 'markers', type: 'scattergl', name, showlegend: points.length > 0,
+    marker: {color, symbol, size: 14, opacity: 1, line:{color:'#ffffff',width:1.5}},
+    hovertemplate: `<b>${name}</b><br>%{text}<br>Cluster %{customdata[1]}<extra></extra>`
+  };
+}
+
+function renderScatter(keywordPointIds = [], studyPointIds = []) {
+  const keywordIds = new Set(keywordPointIds);
+  const studyIds = new Set(studyPointIds);
+  const searchActive = keywordIds.size > 0 || studyIds.size > 0;
+  const baseTrace = {
+    x: rows.map(row => row.TSNE_1), y: rows.map(row => row.TSNE_2),
+    text: rows.map(row => row.Title || row.RecordID), customdata: rows.map(row => [row.PointID, row.Cluster]),
+    mode: 'markers', type: 'scattergl', name: 'All records', showlegend: false,
+    marker: {color: rows.map(row => row.Cluster), colorscale: 'Viridis', size: 10, opacity: searchActive ? 0.2 : 0.85},
+    hovertemplate: '%{text}<br>Cluster %{customdata[1]}<extra></extra>'
+  };
+  const keywordRows = rows.filter(row => keywordIds.has(String(row.PointID)));
+  const studyRows = rows.filter(row => studyIds.has(String(row.PointID)));
+  const keywordTrace = highlightTrace(keywordRows, 'Keyword match', '#ea580c', 'diamond');
+  keywordTrace.customdata = keywordRows.map(row => [row.PointID, row.Cluster]);
+  const studyTrace = highlightTrace(studyRows, 'Study match', '#7c3aed', 'star');
+  studyTrace.customdata = studyRows.map(row => [row.PointID, row.Cluster]);
+  Plotly.react(scatter, [baseTrace, keywordTrace, studyTrace], scatterLayout, plotConfig);
+}
+
+async function loadPointDetails(pointId) {
   const panel = document.getElementById('point-details');
   panel.replaceChildren(Object.assign(document.createElement('p'), {textContent: 'Loading record…'}));
   try {
@@ -128,7 +198,97 @@ scatter.on('plotly_click', async event => {
   } catch (error) {
     panel.replaceChildren(Object.assign(document.createElement('p'), {className: 'notice', textContent: error.message}));
   }
+}
+
+renderScatter();
+scatter.on('plotly_click', event => {
+  loadPointDetails(event.points[0].customdata[0]);
 });
+
+const searchForm = document.getElementById('cluster-search-form');
+const searchError = document.getElementById('cluster-search-error');
+const searchSummary = document.getElementById('cluster-search-summary');
+const studyResults = document.getElementById('study-results');
+
+function setSearchError(message = '') {
+  searchError.textContent = message;
+  searchError.hidden = !message;
+}
+
+function updateClusterStatistics(result) {
+  const statistics = new Map(result.clusters.map(item => [Number(item.cluster), item]));
+  document.querySelectorAll('.cluster-stat-row').forEach(row => {
+    const item = statistics.get(Number(row.dataset.cluster));
+    const keywordCell = row.querySelector('.keyword-statistics');
+    const combinedCell = row.querySelector('.combined-prevalence');
+    if (!item || !result.keywords.length) {
+      keywordCell.replaceChildren(Object.assign(document.createElement('span'), {className:'page-intro', textContent:'No keyword search'}));
+      combinedCell.textContent = '—';
+      return;
+    }
+    const list = document.createElement('ul');
+    list.className = 'keyword-stat-list';
+    item.keywords.forEach(stat => {
+      const entry = document.createElement('li');
+      entry.textContent = `${stat.keyword}: ${stat.count}/${item.size} (${stat.percentage.toFixed(1)}%)`;
+      list.appendChild(entry);
+    });
+    keywordCell.replaceChildren(list);
+    combinedCell.textContent = `${item.combined_count}/${item.size} (${item.combined_percentage.toFixed(1)}%)`;
+  });
+}
+
+function renderStudyResults(result) {
+  studyResults.replaceChildren();
+  if (!result.study_query) return;
+  const heading = document.createElement('h3');
+  const cappedMessage = result.study_matched_point_ids.length > result.study_matches.length ? `, showing first ${result.study_matches.length}` : '';
+  heading.textContent = `Study matches (${result.study_matched_point_ids.length}${cappedMessage})`;
+  studyResults.appendChild(heading);
+  if (!result.study_matches.length) {
+    studyResults.appendChild(Object.assign(document.createElement('p'), {className:'page-intro', textContent:'No matching studies were found in this run.'}));
+    return;
+  }
+  const list = document.createElement('ol');
+  result.study_matches.forEach(match => {
+    const item = document.createElement('li');
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'study-result'; button.dataset.pointId = match.point_id;
+    const title = document.createElement('strong'); title.textContent = match.title || 'Untitled record';
+    const meta = document.createElement('small');
+    meta.textContent = `Cluster ${match.cluster} · ${match.identifier || 'No identifier'} · ${match.match_type.replaceAll('_',' ')} · score ${match.match_score}`;
+    button.append(title, meta); item.appendChild(button); list.appendChild(item);
+  });
+  studyResults.appendChild(list);
+  studyResults.querySelectorAll('.study-result').forEach(button => button.addEventListener('click', () => {
+    loadPointDetails(button.dataset.pointId);
+    document.getElementById('point-details').scrollIntoView({behavior:'smooth', block:'nearest'});
+  }));
+}
+
+searchForm.addEventListener('submit', async event => {
+  event.preventDefault(); setSearchError('');
+  const parameters = new URLSearchParams(new FormData(searchForm));
+  searchSummary.textContent = 'Searching the active run…';
+  try {
+    const response = await fetch(`${searchForm.action}?${parameters.toString()}`, {headers:{Accept:'application/json'}});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Cluster search failed');
+    if (result.run_id !== activeRunId) throw new Error('The active branch changed. Reload this page and search again.');
+    updateClusterStatistics(result); renderStudyResults(result);
+    renderScatter(result.keyword_matched_point_ids, result.study_matched_point_ids);
+    const keywordMessage = result.keywords.length ? `${result.keywords.length} normalized keyword${result.keywords.length === 1 ? '' : 's'} using ${result.match_mode} matching; ${result.keyword_matched_point_ids.length} matching record${result.keyword_matched_point_ids.length === 1 ? '' : 's'}.` : 'No keyword search.';
+    const studyMessage = result.study_query ? ` ${result.study_matched_point_ids.length} study match${result.study_matched_point_ids.length === 1 ? '' : 'es'}.` : '';
+    searchSummary.textContent = keywordMessage + studyMessage;
+  } catch (error) {
+    setSearchError(error.message); searchSummary.textContent = 'Search was not applied.';
+  }
+});
+
+searchForm.addEventListener('reset', () => window.setTimeout(() => {
+  setSearchError(''); searchSummary.textContent = 'Enter keywords or a study query to compare this run.';
+  studyResults.replaceChildren(); updateClusterStatistics({clusters:[],keywords:[]}); renderScatter();
+}, 0));
 {% endif %}
 </script>
 {% endblock %}

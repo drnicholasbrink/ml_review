@@ -149,6 +149,151 @@ def test_form_validation_errors_are_actionable(tmp_path: Path):
     assert b"exceeds the 64 byte limit" in too_large_upload.data
 
 
+def test_cluster_search_route_is_read_only_validated_and_scoped_to_active_run(tmp_path: Path):
+    app = make_app(tmp_path)
+    client = app.test_client()
+    project_id, _setup_url = create_project(client)
+    project_path = tmp_path / "runtime" / "projects" / project_id
+    search_url = f"/projects/{project_id}/clustering/search"
+
+    inactive = client.get(search_url)
+    assert inactive.status_code == 404
+    assert inactive.json == {"error": "Run clustering before searching the cluster explorer"}
+
+    run_directory = project_path / "visualizations" / "clustering_runs"
+    run_directory.mkdir(parents=True, exist_ok=True)
+    run_one = pd.DataFrame(
+        [
+            {
+                "PointID": "point-heat",
+                "RecordID": "R-HEAT",
+                "PMID": "10001",
+                "DOI": "10.1000/heat",
+                "Title": "Heat exposure in pregnancy",
+                "Abstract": "PRIVATE ABSTRACT maternal outcomes",
+                "TSNE_1": 0.0,
+                "TSNE_2": 1.0,
+                "Cluster": 0,
+            },
+            {
+                "PointID": "point-air",
+                "RecordID": "R-AIR",
+                "PMID": "10002",
+                "DOI": "10.1000/air",
+                "Title": "Air pollution and asthma",
+                "Abstract": "PRIVATE ABSTRACT respiratory outcomes",
+                "TSNE_1": 1.0,
+                "TSNE_2": 0.0,
+                "Cluster": 1,
+            },
+        ]
+    )
+    run_two = run_one.iloc[[1]].copy()
+    run_one.to_csv(run_directory / "run_001.csv", index=False)
+    run_two.to_csv(run_directory / "run_002.csv", index=False)
+
+    def run_metadata(run_id: str, output_file: str, parent_run_id: str | None, row_count: int, depth: int):
+        return {
+            "run_id": run_id,
+            "parent_run_id": parent_run_id,
+            "depth": depth,
+            "row_count": row_count,
+            "n_clusters": row_count,
+            "output_file": output_file,
+            "selected_parent_clusters": [] if parent_run_id is None else [1],
+            "method": "test projection",
+            "perplexity": None,
+            "random_state": 42,
+            "sklearn_version": "test",
+            "elbow_scores": [{"k": 1, "wcss": 0.0}],
+        }
+
+    state = {
+        "active_run_id": "run_001",
+        "draft": None,
+        "runs": [
+            run_metadata("run_001", "visualizations/clustering_runs/run_001.csv", None, 2, 0),
+            run_metadata("run_002", "visualizations/clustering_runs/run_002.csv", "run_001", 1, 1),
+        ],
+    }
+    state_path = project_path / "clustering_state.json"
+    state_path.write_text(json.dumps(state, indent=2, sort_keys=True))
+    manifest = load_manifest(project_path)
+    manifest["files"].update(
+        {
+            "embeddings": "visualizations/clustering_runs/run_001.csv",
+            "labeled_clusters": "visualizations/clustering_runs/run_001.csv",
+            "clustering_state": "clustering_state.json",
+        }
+    )
+    manifest["active_clustering_run"] = "run_001"
+    save_manifest(project_path, manifest)
+
+    state_before_search = state_path.read_text()
+    response = client.get(
+        search_url,
+        query_string={"keywords": " HEAT, maternal outcomes, heat ", "mode": "all", "study": "10001"},
+    )
+    assert response.status_code == 200
+    assert set(response.json) == {
+        "run_id",
+        "keywords",
+        "match_mode",
+        "study_query",
+        "clusters",
+        "keyword_matched_point_ids",
+        "study_matched_point_ids",
+        "study_matches",
+    }
+    assert response.json["run_id"] == "run_001"
+    assert response.json["keywords"] == ["heat", "maternal outcomes"]
+    assert response.json["keyword_matched_point_ids"] == ["point-heat"]
+    assert response.json["study_matched_point_ids"] == ["point-heat"]
+    assert response.json["study_matches"][0]["match_type"] == "identifier_exact"
+    assert "PRIVATE ABSTRACT" not in response.get_data(as_text=True)
+    assert "Abstract" not in response.get_data(as_text=True)
+    assert state_path.read_text() == state_before_search
+
+    no_matches = client.get(search_url, query_string={"keywords": "xylophone-quasar", "study": "zzzzzzzzzzzz"})
+    assert no_matches.status_code == 200
+    assert no_matches.json["keyword_matched_point_ids"] == []
+    assert no_matches.json["study_matches"] == []
+
+    too_many = client.get(search_url, query_string={"keywords": ",".join(f"term-{index}" for index in range(21))})
+    assert too_many.status_code == 400
+    assert too_many.json["error"] == "Enter no more than 20 keywords"
+    long_keyword = client.get(search_url, query_string={"keywords": "k" * 101})
+    assert long_keyword.status_code == 400
+    assert "100 characters or fewer" in long_keyword.json["error"]
+    long_study = client.get(search_url, query_string={"study": "s" * 201})
+    assert long_study.status_code == 400
+    assert "200 characters or fewer" in long_study.json["error"]
+    invalid_mode = client.get(search_url, query_string={"mode": "sometimes"})
+    assert invalid_mode.status_code == 400
+    assert "either any or all" in invalid_mode.json["error"]
+
+    clustering_page = client.get(f"/projects/{project_id}/clustering")
+    assert clustering_page.status_code == 200
+    assert b"Search and compare clusters" in clustering_page.data
+    assert b'id="cluster-search-form"' in clustering_page.data
+    assert b'class="cluster-table"' in clustering_page.data
+    assert clustering_page.data.count(b'name="clusters"') == 2
+    assert b"Plotly.react" in clustering_page.data
+    assert b"Keyword match" in clustering_page.data
+    assert b"Study match" in clustering_page.data
+
+    state["active_run_id"] = "run_002"
+    state_path.write_text(json.dumps(state, indent=2, sort_keys=True))
+    branch_search = client.get(search_url, query_string={"keywords": "heat", "study": "10001"})
+    assert branch_search.status_code == 200
+    assert branch_search.json["run_id"] == "run_002"
+    assert branch_search.json["keyword_matched_point_ids"] == []
+    assert branch_search.json["study_matches"] == []
+    branch_page = client.get(f"/projects/{project_id}/clustering")
+    assert branch_page.data.count(b'name="clusters"') == 1
+    assert b'id="cluster-keywords" name="keywords"' in branch_page.data
+
+
 def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
     def fake_add_embeddings(input_csv, output_csv, **_kwargs):
         df = pd.read_csv(input_csv)
