@@ -29,3 +29,6 @@ secret_keys.py
 
 # Misc in scripts
 scripts/.DS_Store
+
+# Flask app runtime projects/uploads
+runtime/

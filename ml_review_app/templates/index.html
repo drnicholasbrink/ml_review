@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}ML Review{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Systematic review workflow, guided end to end</h1>
+  <p>Create a project, import PubMed or CSV records, deduplicate, embed, cluster with Plotly, screen with AI, and export results.</p>
+  <a class="button" href="{{ url_for('projects.projects_index') }}">Start a review</a>
+</section>
+{% endblock %}

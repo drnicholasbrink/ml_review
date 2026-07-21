@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Clustering · ML Review{% endblock %}
+{% block content %}
+<h1>{{ manifest.name }} · t-SNE and elbow clustering</h1>
+<form method="post" class="card form-inline">
+  <label>Cluster count <input type="number" min="1" max="20" name="n_clusters" value="{{ manifest.cluster_count or 3 }}"></label>
+  <button type="submit">Run clustering</button>
+</form>
+{% if scores %}<section class="card"><h2>Elbow scores</h2><div id="elbow"></div></section>{% endif %}
+{% if rows %}
+<section class="card"><h2>Cluster selection</h2>
+<form method="post" action="{{ url_for('clustering.select_clusters', project_id=manifest.project_id) }}">
+  {% for c in rows | map(attribute='Cluster') | unique | list %}<label><input type="checkbox" name="clusters" value="{{ c }}" checked> Cluster {{ c }}</label>{% endfor %}
+  <button type="submit">Export selected clusters to screening</button>
+</form><div id="scatter"></div></section>
+{% endif %}
+<script>
+{% if scores %}Plotly.newPlot('elbow', [{x: {{ scores|map(attribute='k')|list|tojson }}, y: {{ scores|map(attribute='wcss')|list|tojson }}, mode: 'lines+markers'}], {title: 'Elbow method', xaxis:{title:'K'}, yaxis:{title:'WCSS'}});{% endif %}
+{% if rows %}const rows = {{ rows|tojson }}; Plotly.newPlot('scatter', [{x: rows.map(r=>r.TSNE_1), y: rows.map(r=>r.TSNE_2), text: rows.map(r=>r.Title || r.RecordID), mode:'markers', marker:{color: rows.map(r=>r.Cluster), colorscale:'Viridis', size:10}}], {title:'t-SNE clusters'});{% endif %}
+</script>
+{% endblock %}
