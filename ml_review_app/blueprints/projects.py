@@ -78,6 +78,7 @@ def setup(project_id: str):
             manifest.setdefault("files", {}).pop("pubmed_results_complete", None)
             manifest.pop("pubmed_rows", None)
             manifest.pop("last_pubmed_count", None)
+            manifest.pop("last_pubmed_parameters", None)
             if manifest.get("record_source") == "pubmed":
                 invalidate_outputs(manifest, "records")
         if criteria != previous_criteria:

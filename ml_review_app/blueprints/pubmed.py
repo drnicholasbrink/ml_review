@@ -22,10 +22,17 @@ def pubmed(project_id: str):
     query = query_path.read_text() if query_path.exists() else ""
     error = None
     count = manifest.get("last_pubmed_count")
+    previous_parameters = manifest.get("last_pubmed_parameters", {})
+    mindate_value = str(previous_parameters.get("mindate") or "")
+    maxdate_value = str(previous_parameters.get("maxdate") or "")
+    retmax_value = int(previous_parameters.get("retmax") or 500)
     status_code = 200
     fallback_available = credential_available("PUBMED_API_KEY")
     if request.method == "POST":
         action = request.form.get("action")
+        mindate_value = (request.form.get("mindate") or "").strip()
+        maxdate_value = (request.form.get("maxdate") or "").strip()
+        retmax_raw = (request.form.get("retmax") or "").strip()
         try:
             query = validate_text(
                 query,
@@ -39,21 +46,26 @@ def pubmed(project_id: str):
                 current_app.config["MAX_API_KEY_LENGTH"],
             )
             api_key, key_source = resolve_api_key(submitted_key, "PUBMED_API_KEY", required=False)
-            mindate, maxdate = validate_date_range(request.form.get("mindate"), request.form.get("maxdate"))
+            mindate, maxdate = validate_date_range(mindate_value, maxdate_value)
+            retmax_value = parse_bounded_int(
+                retmax_raw,
+                "Maximum records",
+                minimum=1,
+                maximum=current_app.config["MAX_PUBMED_RECORDS"],
+                default=500,
+            )
+            manifest["last_pubmed_parameters"] = {
+                "mindate": mindate,
+                "maxdate": maxdate,
+                "retmax": retmax_value,
+            }
             if action == "count":
                 count = count_pubmed(query, api_key=api_key, mindate=mindate, maxdate=maxdate)
                 manifest["last_pubmed_count"] = count
                 manifest["pubmed_key_source"] = key_source
                 save_manifest(path, manifest)
             elif action == "fetch":
-                retmax = parse_bounded_int(
-                    request.form.get("retmax"),
-                    "Maximum records",
-                    minimum=1,
-                    maximum=current_app.config["MAX_PUBMED_RECORDS"],
-                    default=500,
-                )
-                df = fetch_pubmed_records(query, path / "pubmed_results_complete.csv", api_key=api_key, retmax=retmax, mindate=mindate, maxdate=maxdate)
+                df = fetch_pubmed_records(query, path / "pubmed_results_complete.csv", api_key=api_key, retmax=retmax_value, mindate=mindate, maxdate=maxdate)
                 invalidate_outputs(manifest, "records")
                 manifest["record_source"] = "pubmed"
                 manifest.setdefault("files", {})["pubmed_results_complete"] = "pubmed_results_complete.csv"
@@ -73,4 +85,14 @@ def pubmed(project_id: str):
             current_app.logger.exception("Unexpected PubMed response")
             error = "PubMed returned an unexpected response. Try again later."
             status_code = 502
-    return render_template("pubmed.html", manifest=manifest, query=query, count=count, error=error, fallback_available=fallback_available), status_code
+    return render_template(
+        "pubmed.html",
+        manifest=manifest,
+        query=query,
+        count=count,
+        error=error,
+        fallback_available=fallback_available,
+        mindate=mindate_value,
+        maxdate=maxdate_value,
+        retmax=retmax_value,
+    ), status_code

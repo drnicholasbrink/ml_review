@@ -158,6 +158,15 @@ th, td { border-bottom: 1px solid #e5e7eb; padding: .65rem; text-align: left; ve
 .atlas-shell { width: 100%; padding: 0; overflow: hidden; }
 .atlas-workspace { width: 100%; min-height: 72vh; background: white; }
 .atlas-workspace > * { max-width: 100%; }
+.atlas-compatible { padding: 1.25rem; }
+.atlas-compatible-controls { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(150px, 1fr) minmax(130px, 1fr) auto; gap: .75rem; align-items: end; margin-bottom: 1rem; }
+.atlas-compatible-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 1rem; }
+.atlas-compatible-plot { display: block; width: 100%; min-height: 420px; border: 1px solid #dbe3ef; border-radius: 12px; background: #f8fafc; }
+.atlas-compatible-plot circle { cursor: pointer; opacity: .8; stroke: white; stroke-width: 2; }
+.atlas-compatible-plot circle:hover, .atlas-compatible-plot circle:focus { opacity: 1; stroke: #0f172a; stroke-width: 3; outline: none; }
+.atlas-compatible-details { max-height: 620px; overflow: auto; }
+.atlas-neighbor-list { display: grid; gap: .5rem; padding-left: 1.25rem; }
+.atlas-compatible-table tbody tr { cursor: pointer; }
 
 @media (max-width: 860px) {
   .topbar { padding: 1rem; }
@@ -169,6 +178,7 @@ th, td { border-bottom: 1px solid #e5e7eb; padding: .65rem; text-align: left; ve
   .cluster-search-grid { grid-template-columns: minmax(0, 1fr); }
   .section-heading { display: block; }
   .evaluation-grid { grid-template-columns: 1fr; }
+  .atlas-compatible-controls, .atlas-compatible-grid { grid-template-columns: minmax(0, 1fr); }
   .chart-wide { grid-column: auto; }
   .run-card { margin-left: calc(var(--branch-depth) * .8rem); }
   .data-table { min-width: 680px; }

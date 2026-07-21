@@ -80,7 +80,15 @@
         data-url="{{ url_for('atlas.data', project_id=manifest.project_id, fingerprint=atlas.fingerprint) }}"
         data-storage-key="ml-review-atlas:{{ manifest.project_id }}:{{ atlas.fingerprint }}"
       ></div>
+      <div
+        id="atlas-fallback"
+        class="atlas-compatible"
+        hidden
+        data-preview-url="{{ url_for('atlas.preview', project_id=manifest.project_id, fingerprint=atlas.fingerprint) }}"
+        data-record-url="{{ url_for('atlas.preview_record', project_id=manifest.project_id, fingerprint=atlas.fingerprint, atlas_id='ATLAS_ID') }}"
+      ></div>
     </section>
+    <script defer src="{{ url_for('static', filename='js/atlas_fallback.js') }}"></script>
     <script type="module" src="{{ url_for('static', filename='atlas/atlas.js') }}"></script>
   {% endif %}
 </div>

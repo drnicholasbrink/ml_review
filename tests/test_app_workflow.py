@@ -149,6 +149,55 @@ def test_form_validation_errors_are_actionable(tmp_path: Path):
     assert b"exceeds the 64 byte limit" in too_large_upload.data
 
 
+def test_pubmed_count_preserves_the_approved_fetch_scope(tmp_path: Path, monkeypatch):
+    app = make_app(tmp_path)
+    client = app.test_client()
+    project_id, setup_url = create_project(client)
+    client.post(
+        setup_url,
+        data={
+            "search_strategy": "pregnancy AND heat",
+            "inclusion_criteria": "Include maternal outcomes.",
+        },
+    )
+    monkeypatch.setattr("ml_review_app.blueprints.pubmed.count_pubmed", lambda *args, **kwargs: 58)
+
+    counted = client.post(
+        f"/projects/{project_id}/pubmed",
+        data={
+            "action": "count",
+            "mindate": "2024/01/01",
+            "maxdate": "2024/03/31",
+            "retmax": "25",
+        },
+    )
+    assert counted.status_code == 200
+    assert b'value="2024/01/01"' in counted.data
+    assert b'value="2024/03/31"' in counted.data
+    assert b'value="25"' in counted.data
+    assert b"Scope: 2024/01/01 through 2024/03/31" in counted.data
+    assert b"Fetch remains capped at 25 records" in counted.data
+
+    persisted = client.get(f"/projects/{project_id}/pubmed")
+    assert b'value="2024/01/01"' in persisted.data
+    manifest = load_manifest(tmp_path / "runtime" / "projects" / project_id)
+    assert manifest["last_pubmed_parameters"] == {
+        "mindate": "2024/01/01",
+        "maxdate": "2024/03/31",
+        "retmax": 25,
+    }
+
+    client.post(
+        setup_url,
+        data={
+            "search_strategy": "pregnancy AND humidity",
+            "inclusion_criteria": "Include maternal outcomes.",
+        },
+    )
+    manifest = load_manifest(tmp_path / "runtime" / "projects" / project_id)
+    assert "last_pubmed_parameters" not in manifest
+
+
 def test_cluster_search_route_is_read_only_validated_and_scoped_to_active_run(tmp_path: Path):
     app = make_app(tmp_path)
     client = app.test_client()
@@ -365,12 +414,22 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/import/deduplicate")
 
+    reopened_import = client.get(f"/projects/{project_id}/import")
+    assert b'<option value="source_id" selected>source_id</option>' in reopened_import.data
+    assert b'<option value="article_title" selected>article_title</option>' in reopened_import.data
+
     response = client.post(
         f"/projects/{project_id}/import/deduplicate",
         data={"match_columns": "Title"},
     )
     assert response.status_code == 200
     assert b"Download deduplicated CSV" in response.data
+    assert b"Records retained" in response.data
+    assert b"Duplicate report preview" in response.data
+
+    reopened_deduplication = client.get(f"/projects/{project_id}/import/deduplicate")
+    assert b'name="match_columns" value="Title" checked' in reopened_deduplication.data
+    assert b"Duplicate report preview" in reopened_deduplication.data
 
     project_path = tmp_path / "runtime" / "projects" / project_id
     deduplicated = pd.read_csv(project_path / "deduplicated_records.csv")
