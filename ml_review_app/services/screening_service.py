@@ -26,12 +26,24 @@ class ScreeningDecision(BaseModel):
 
 
 def _configuration_hash(criteria: str, model: str) -> str:
-    return hashlib.sha256(f"{model}\n{criteria}".encode()).hexdigest()
+    return hashlib.sha256(
+        f"{model}\nleading-character-limit={MAX_SCREENING_RECORD_LENGTH}\n{criteria}".encode()
+    ).hexdigest()
 
 
 def _record_identifier(row: pd.Series, index: int) -> str:
     value = row.get("RecordID", index)
     return str(index if pd.isna(value) else value)
+
+
+def truncate_screening_record(title: str, abstract: str) -> tuple[str, str, bool, int]:
+    """Keep the leading title/abstract characters within the screening input limit."""
+
+    original_length = len(title) + len(abstract)
+    truncated_title = title[:MAX_SCREENING_RECORD_LENGTH]
+    abstract_allowance = max(0, MAX_SCREENING_RECORD_LENGTH - len(truncated_title))
+    truncated_abstract = abstract[:abstract_allowance]
+    return truncated_title, truncated_abstract, original_length > MAX_SCREENING_RECORD_LENGTH, original_length
 
 
 def screen_record(
@@ -48,12 +60,7 @@ def screen_record(
 
     if not api_key:
         raise ValueError("An OpenAI API key is required")
-    record_length = len(title) + len(abstract)
-    if record_length > MAX_SCREENING_RECORD_LENGTH:
-        raise ValueError(
-            f"Record {record_identifier} contains {record_length:,} title/abstract characters; "
-            f"shorten it to {MAX_SCREENING_RECORD_LENGTH:,} characters before screening"
-        )
+    title, abstract, was_truncated, _original_length = truncate_screening_record(title, abstract)
     api_client = client or OpenAI(api_key=api_key)
     safety_identifier = "ml-review-" + hashlib.sha256(record_identifier.encode()).hexdigest()[:24]
     response = api_client.responses.parse(
@@ -64,7 +71,10 @@ def screen_record(
             "Do not invent study details. AI output is decision support and requires human review.\n\n"
             f"INCLUSION AND EXCLUSION CRITERIA:\n{criteria}"
         ),
-        input=f"TITLE:\n{title}\n\nABSTRACT:\n{abstract}",
+        input=(
+            f"TITLE:\n{title}\n\n"
+            f"ABSTRACT{' (LEADING EXCERPT; INPUT WAS TRUNCATED)' if was_truncated else ''}:\n{abstract}"
+        ),
         text_format=ScreeningDecision,
         reasoning={"effort": "low"},
         safety_identifier=safety_identifier,
@@ -93,23 +103,34 @@ def screen_csv(
     config_hash = _configuration_hash(criteria, model)
     decision_columns = [f"ai_{name}" for name in ScreeningDecision.model_fields]
     result = df.copy()
-    for column in decision_columns + ["ai_model", "ai_config_hash", "ai_screened_at"]:
+    metadata_columns = [
+        "ai_model",
+        "ai_config_hash",
+        "ai_screened_at",
+        "ai_input_truncated",
+        "ai_input_characters",
+        "ai_input_original_characters",
+    ]
+    for column in decision_columns + metadata_columns:
         result[column] = None
 
     if resume and output_csv.exists():
         existing = pd.read_csv(output_csv)
         if len(existing) == len(df) and "ai_config_hash" in existing:
             matching = existing["ai_config_hash"].fillna("").eq(config_hash)
-            for column in decision_columns + ["ai_model", "ai_config_hash", "ai_screened_at"]:
+            for column in decision_columns + metadata_columns:
                 if column in existing:
                     result.loc[matching, column] = existing.loc[matching, column]
 
     for index, row in df.iterrows():
         if pd.notna(result.loc[index, "ai_decision"]):
             continue
+        title = "" if pd.isna(row.get("Title")) else str(row.get("Title", ""))
+        abstract = "" if pd.isna(row.get("Abstract")) else str(row.get("Abstract", ""))
+        truncated_title, truncated_abstract, was_truncated, original_length = truncate_screening_record(title, abstract)
         decision = screen_record(
-            "" if pd.isna(row.get("Title")) else str(row.get("Title", "")),
-            "" if pd.isna(row.get("Abstract")) else str(row.get("Abstract", "")),
+            title,
+            abstract,
             criteria,
             api_key=api_key,
             model=model,
@@ -121,5 +142,8 @@ def screen_csv(
         result.loc[index, "ai_model"] = model
         result.loc[index, "ai_config_hash"] = config_hash
         result.loc[index, "ai_screened_at"] = datetime.now(timezone.utc).isoformat()
+        result.loc[index, "ai_input_truncated"] = was_truncated
+        result.loc[index, "ai_input_characters"] = len(truncated_title) + len(truncated_abstract)
+        result.loc[index, "ai_input_original_characters"] = original_length
         result.to_csv(output_csv, index=False)
     return result

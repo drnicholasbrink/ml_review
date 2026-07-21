@@ -13,27 +13,27 @@ from typing import Any
 INVALIDATION_STAGES: dict[str, tuple[set[str], set[str]]] = {
     "upload": (
         {"column_mapping", "normalized_records", "deduplicated_records", "duplicate_report", "embeddings", "labeled_clusters", "selected_records", "ai_screening_full_results"},
-        {"column_mapping", "normalized_rows", "deduplication", "embedding_rows", "elbow_scores", "cluster_rows", "cluster_count", "selected_clusters", "selected_rows", "screening_rows", "screening_decision_counts"},
+        {"column_mapping", "normalized_rows", "deduplication", "embedding_rows", "embedding_truncated_rows", "elbow_scores", "cluster_rows", "cluster_count", "selected_clusters", "selected_rows", "screening_rows", "screening_truncated_rows", "screening_decision_counts"},
     ),
     "mapping": (
         {"deduplicated_records", "duplicate_report", "embeddings", "labeled_clusters", "selected_records", "ai_screening_full_results"},
-        {"deduplication", "embedding_rows", "elbow_scores", "cluster_rows", "cluster_count", "selected_clusters", "selected_rows", "screening_rows", "screening_decision_counts"},
+        {"deduplication", "embedding_rows", "embedding_truncated_rows", "elbow_scores", "cluster_rows", "cluster_count", "selected_clusters", "selected_rows", "screening_rows", "screening_truncated_rows", "screening_decision_counts"},
     ),
     "records": (
         {"embeddings", "labeled_clusters", "selected_records", "ai_screening_full_results"},
-        {"embedding_rows", "elbow_scores", "cluster_rows", "cluster_count", "selected_clusters", "selected_rows", "screening_rows", "screening_decision_counts"},
+        {"embedding_rows", "embedding_truncated_rows", "elbow_scores", "cluster_rows", "cluster_count", "selected_clusters", "selected_rows", "screening_rows", "screening_truncated_rows", "screening_decision_counts"},
     ),
     "embeddings": (
         {"labeled_clusters", "selected_records", "ai_screening_full_results"},
-        {"elbow_scores", "cluster_rows", "cluster_count", "selected_clusters", "selected_rows", "screening_rows", "screening_decision_counts"},
+        {"elbow_scores", "cluster_rows", "cluster_count", "selected_clusters", "selected_rows", "screening_rows", "screening_truncated_rows", "screening_decision_counts"},
     ),
     "clustering": (
         {"selected_records", "ai_screening_full_results"},
-        {"selected_clusters", "selected_rows", "screening_rows", "screening_decision_counts"},
+        {"selected_clusters", "selected_rows", "screening_rows", "screening_truncated_rows", "screening_decision_counts"},
     ),
     "selection": (
         {"ai_screening_full_results"},
-        {"screening_rows", "screening_decision_counts"},
+        {"screening_rows", "screening_truncated_rows", "screening_decision_counts"},
     ),
 }
 

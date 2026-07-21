@@ -61,6 +61,7 @@ def embeddings(project_id: str):
                 manifest.setdefault("files", {})["embeddings"] = "pubmed_results_with_embeddings.csv"
                 manifest["embedding_rows"] = len(df)
                 manifest["embedding_model"] = model
+                manifest["embedding_truncated_rows"] = int(df["EmbeddingInputTruncated"].sum())
                 manifest["openai_key_source"] = key_source
                 save_manifest(path, manifest)
                 return redirect(url_for("clustering.clustering", project_id=project_id))

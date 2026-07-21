@@ -5,9 +5,9 @@ import pandas as pd
 
 from ml_review_app.services.clustering_service import cluster_csv
 from ml_review_app.services.deduplication_service import deduplicate_records, normalize_text
-from ml_review_app.services.embedding_service import add_embeddings
+from ml_review_app.services.embedding_service import MAX_EMBEDDING_TEXT_LENGTH, add_embeddings
 from ml_review_app.services.import_service import build_column_mapping, normalize_records, profile_csv
-from ml_review_app.services.screening_service import ScreeningDecision, screen_csv
+from ml_review_app.services.screening_service import MAX_SCREENING_RECORD_LENGTH, ScreeningDecision, screen_csv
 
 
 def test_import_mapping_normalize_and_profile(tmp_path: Path):
@@ -125,6 +125,63 @@ def test_structured_screening_outputs_schema_and_csv(tmp_path: Path):
         client=client,
     )
     assert screened.loc[0, "ai_decision"] == "include"
+
+
+def test_overlength_api_inputs_are_truncated_without_altering_stored_abstracts(tmp_path: Path):
+    embedding_inputs = []
+
+    class FakeEmbeddings:
+        def create(self, *, input, model, encoding_format):
+            embedding_inputs.extend(input)
+            return SimpleNamespace(data=[SimpleNamespace(index=0, embedding=[1.0, 2.0])])
+
+    long_embedding_abstract = "e" * (MAX_EMBEDDING_TEXT_LENGTH + 500)
+    embedding_source = tmp_path / "long-embedding.csv"
+    pd.DataFrame([{"RecordID": "long-1", "Title": "Title", "Abstract": long_embedding_abstract}]).to_csv(embedding_source, index=False)
+    embedded = add_embeddings(
+        embedding_source,
+        tmp_path / "long-embedded.csv",
+        api_key="test-key",
+        client=SimpleNamespace(embeddings=FakeEmbeddings()),
+    )
+    assert len(embedding_inputs[0]) == MAX_EMBEDDING_TEXT_LENGTH
+    assert embedded.loc[0, "Abstract"] == long_embedding_abstract
+    assert bool(embedded.loc[0, "EmbeddingInputTruncated"])
+
+    screening_inputs = []
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            screening_inputs.append(kwargs["input"])
+            return SimpleNamespace(
+                output_parsed=ScreeningDecision(
+                    decision="uncertain",
+                    confidence="low",
+                    exclusion_reason=None,
+                    reasoning="The supplied excerpt requires human review.",
+                    population_match=False,
+                    exposure_match=False,
+                    outcome_match=False,
+                    study_design_appropriate=False,
+                )
+            )
+
+    long_screening_abstract = "s" * (MAX_SCREENING_RECORD_LENGTH + 500)
+    screening_source = tmp_path / "long-screening.csv"
+    pd.DataFrame([{"RecordID": "long-2", "Title": "Title", "Abstract": long_screening_abstract}]).to_csv(screening_source, index=False)
+    screened = screen_csv(
+        screening_source,
+        "Include relevant studies.",
+        tmp_path / "long-screened.csv",
+        api_key="test-key",
+        model="gpt-5.6-luna",
+        client=SimpleNamespace(responses=FakeResponses()),
+    )
+    assert "LEADING EXCERPT; INPUT WAS TRUNCATED" in screening_inputs[0]
+    assert screened.loc[0, "Abstract"] == long_screening_abstract
+    assert bool(screened.loc[0, "ai_input_truncated"])
+    assert screened.loc[0, "ai_input_characters"] == MAX_SCREENING_RECORD_LENGTH
+    assert screened.loc[0, "ai_input_original_characters"] > MAX_SCREENING_RECORD_LENGTH
 
 
 def test_parse_pubmed_xml_fixture():

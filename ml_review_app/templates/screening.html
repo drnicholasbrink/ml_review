@@ -3,6 +3,7 @@
 {% block content %}
 <h1>{{ manifest.name }} · AI screening</h1>
 {% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+{% if manifest.screening_truncated_rows %}<p class="notice">{{ manifest.screening_truncated_rows }} record{{ '' if manifest.screening_truncated_rows == 1 else 's' }} exceeded the screening input allowance. Screening used the first 100,000 title/abstract characters; the full stored text was retained for human review.</p>{% endif %}
 <p class="notice">AI screening is decision support only. A human reviewer must review all uncertain and low-confidence decisions before making final inclusion decisions.</p>
 <section class="card stack">
   <h2>Criteria</h2>

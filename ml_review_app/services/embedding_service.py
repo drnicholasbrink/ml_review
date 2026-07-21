@@ -58,16 +58,11 @@ def add_embeddings(
     df = pd.read_csv(input_csv)
     if df.empty:
         raise ValueError("The selected record source is empty")
-    texts = [make_text(row, title_column, abstract_column) for _, row in df.iterrows()]
-    if any(not text for text in texts):
+    original_texts = [make_text(row, title_column, abstract_column) for _, row in df.iterrows()]
+    if any(not text for text in original_texts):
         raise ValueError("Every record must contain a title or abstract before embedding")
-    oversized = next((index for index, text in enumerate(texts) if len(text) > MAX_EMBEDDING_TEXT_LENGTH), None)
-    if oversized is not None:
-        record_id = df.iloc[oversized].get("RecordID", oversized)
-        raise ValueError(
-            f"Record {record_id} contains {len(texts[oversized]):,} characters; "
-            f"shorten its title and abstract to {MAX_EMBEDDING_TEXT_LENGTH:,} characters before embedding"
-        )
+    texts = [text[:MAX_EMBEDDING_TEXT_LENGTH] for text in original_texts]
+    input_truncated = [len(text) > MAX_EMBEDDING_TEXT_LENGTH for text in original_texts]
     embeddings = _resume_embeddings(df, output_csv, model)
     api_client = client or OpenAI(api_key=api_key)
 
@@ -87,10 +82,16 @@ def add_embeddings(
         progress = df.copy()
         progress["Embedding"] = embeddings
         progress["EmbeddingModel"] = model
+        progress["EmbeddingInputTruncated"] = input_truncated
+        progress["EmbeddingInputCharacters"] = [len(text) for text in texts]
+        progress["EmbeddingInputOriginalCharacters"] = [len(text) for text in original_texts]
         progress.to_csv(output_csv, index=False)
 
     result = df.copy()
     result["Embedding"] = embeddings
     result["EmbeddingModel"] = model
+    result["EmbeddingInputTruncated"] = input_truncated
+    result["EmbeddingInputCharacters"] = [len(text) for text in texts]
+    result["EmbeddingInputOriginalCharacters"] = [len(text) for text in original_texts]
     result.to_csv(output_csv, index=False)
     return result

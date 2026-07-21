@@ -56,6 +56,7 @@ def screening(project_id: str):
                 manifest.setdefault("files", {})["ai_screening_full_results"] = "ai_screening_full_results.csv"
                 manifest["screening_rows"] = len(df)
                 manifest["screening_decision_counts"] = df["ai_decision"].value_counts().to_dict()
+                manifest["screening_truncated_rows"] = int(df["ai_input_truncated"].fillna(False).sum())
                 manifest["screening_model"] = model
                 manifest["openai_key_source"] = key_source
                 save_manifest(path, manifest)

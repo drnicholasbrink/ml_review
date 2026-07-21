@@ -152,6 +152,7 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
         df = pd.read_csv(input_csv)
         df["Embedding"] = [f"[{index}.0, 1.0, 2.0]" for index in range(len(df))]
         df["EmbeddingModel"] = "text-embedding-3-small"
+        df["EmbeddingInputTruncated"] = False
         df.to_csv(output_csv, index=False)
         return df
 
@@ -165,6 +166,7 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
         df["ai_exposure_match"] = False
         df["ai_outcome_match"] = False
         df["ai_study_design_appropriate"] = False
+        df["ai_input_truncated"] = False
         df.to_csv(output_csv, index=False)
         return df
 

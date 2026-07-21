@@ -4,6 +4,7 @@
 <h1>{{ manifest.name }} · Embeddings</h1>
 <p class="page-intro">Generate semantic vectors with the OpenAI embeddings API. Completed batches are saved so an interrupted run can resume.</p>
 {% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+{% if manifest.embedding_truncated_rows %}<p class="notice">{{ manifest.embedding_truncated_rows }} record{{ '' if manifest.embedding_truncated_rows == 1 else 's' }} exceeded the embedding input allowance. Only the first 24,000 title/abstract characters were sent to OpenAI; the full stored text was retained.</p>{% endif %}
 <section class="card stack">
   {% if source_name %}
     <p>Source: <code>{{ source_name }}</code></p>
