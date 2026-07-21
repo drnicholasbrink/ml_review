@@ -1,0 +1,14 @@
+Eligibility criteria
+Studies will be eligible for inclusion if they reported on the following:
+• Population: Pregnant human populations.
+• Exposure: Elevated or high ambient temperatures or heat or heat indices pre-conception or during pregnancy.
+• Comparator: Pregnancy population exposed to lower levels of heat
+• Outcome: HDP, including gestational hypertension, pre-eclampsia (de novo or superimposed; early or late-onset), and related complications such as eclampsia and HELLP syndrome.1 Of note, while chronic hypertension is classified as an HDP by the International Society for the Study of Hypertension in Pregnancy (ISSHP),1 it will not be included as an outcome in this systematic review, as by criteria this is present pre-conception or arises before 20 weeks of gestation. Instead we will examine whether studies have appropriately accounted for participants with chronic hypertension. This might refer to exclusion of participants with chronic hypertension, or that these people with chronic hypertension are analysed separately. Outcomes may be defined using established clinical criteria, hospital records, diagnostic codes or self-reported doctor diagnosis. The method of outcome ascertainment will be documented.
+• Study design: Peer-reviewed full-text articles of observational, quantitative studies (e.g. cohort, case-control, case-crossover, cross-sectional, ecological, time series)
+ 
+Studies are not eligible for inclusion if:
+• Population: Includes non-pregnant or non-human populations,
+• Exposure: Investigates non-ambient heat exposures (e.g. hot baths or saunas) or focus solely on season without explicitly considering temperature.
+• Outcome: Do not report on HDP.
+• Study design: Reviews, commentaries, individual case reports, conference abstracts, qualitative studies and grey literature.
+• Language: Not available in English.
