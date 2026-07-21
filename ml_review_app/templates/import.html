@@ -20,7 +20,7 @@
       <label>{{ canonical }}{% if canonical == 'RecordID' %} (required unique ID){% elif canonical in ['Title', 'Abstract'] %} (map at least one){% endif %}
         <select name="{{ canonical }}">
           <option value="">-- not mapped --</option>
-          {% for column in columns %}<option value="{{ column }}">{{ column }}</option>{% endfor %}
+          {% for column in columns %}<option value="{{ column }}" {% if mapping.get(canonical) == column %}selected{% endif %}>{{ column }}</option>{% endfor %}
         </select>
       </label>
     {% endfor %}

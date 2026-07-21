@@ -42,6 +42,7 @@ code { white-space: break-spaces; word-break: break-word; }
 .status-pill.available { color: #1d4ed8; background: #dbeafe; }
 .status-pill.complete { color: #047857; background: #d1fae5; }
 .status-pill.blocked { color: #64748b; background: #e2e8f0; }
+.status-pill.attention { color: #9a3412; background: #ffedd5; }
 .stack { display: grid; gap: 1rem; }
 .label-with-help { display: inline-flex; align-items: center; gap: 0.45rem; }
 .info-link { display: inline-grid; place-items: center; width: 1.2rem; height: 1.2rem; border: 1px solid currentColor; border-radius: 50%; font-size: 0.78rem; font-weight: 700; line-height: 1; text-decoration: none; }
@@ -121,7 +122,18 @@ th, td { border-bottom: 1px solid #e5e7eb; padding: .65rem; text-align: left; ve
 .screening-table .col-confidence { width: 10%; }
 .screening-table .col-instrument { width: 6%; }
 .screening-table .col-rationale { width: 29%; }
+.review-table { min-width: 1280px; }
+.review-table .col-record { width: 20%; }
+.review-table .col-rationale { width: 20%; }
+.review-table .col-review { width: 22%; }
+.review-form { display: grid; gap: .65rem; }
+.review-form textarea { min-height: 5rem; }
+.review-form button { justify-self: start; padding: .55rem .85rem; }
+.review-filter-form { display: flex; align-items: end; flex-wrap: wrap; gap: .75rem; }
+.review-filter-form label { min-width: min(220px, 100%); }
+.pagination { display: flex; align-items: center; justify-content: center; gap: 1rem; margin-top: 1rem; }
 .comparison-table { min-width: 700px; }
+.extraction-table { min-width: 1050px; }
 .comparison-table .col-title { width: 31%; }
 .comparison-table .col-decision, .comparison-table .col-score, .comparison-table .col-status { width: 12.666%; }
 .preview-table { width: max-content; min-width: 100%; table-layout: auto !important; }
@@ -158,6 +170,15 @@ th, td { border-bottom: 1px solid #e5e7eb; padding: .65rem; text-align: left; ve
 .atlas-shell { width: 100%; padding: 0; overflow: hidden; }
 .atlas-workspace { width: 100%; min-height: 72vh; background: white; }
 .atlas-workspace > * { max-width: 100%; }
+.atlas-compatible { padding: 1.25rem; }
+.atlas-compatible-controls { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(150px, 1fr) minmax(130px, 1fr) auto; gap: .75rem; align-items: end; margin-bottom: 1rem; }
+.atlas-compatible-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 1rem; }
+.atlas-compatible-plot { display: block; width: 100%; min-height: 420px; border: 1px solid #dbe3ef; border-radius: 12px; background: #f8fafc; }
+.atlas-compatible-plot circle { cursor: pointer; opacity: .8; stroke: white; stroke-width: 2; }
+.atlas-compatible-plot circle:hover, .atlas-compatible-plot circle:focus { opacity: 1; stroke: #0f172a; stroke-width: 3; outline: none; }
+.atlas-compatible-details { max-height: 620px; overflow: auto; }
+.atlas-neighbor-list { display: grid; gap: .5rem; padding-left: 1.25rem; }
+.atlas-compatible-table tbody tr { cursor: pointer; }
 
 @media (max-width: 860px) {
   .topbar { padding: 1rem; }
@@ -169,6 +190,7 @@ th, td { border-bottom: 1px solid #e5e7eb; padding: .65rem; text-align: left; ve
   .cluster-search-grid { grid-template-columns: minmax(0, 1fr); }
   .section-heading { display: block; }
   .evaluation-grid { grid-template-columns: 1fr; }
+  .atlas-compatible-controls, .atlas-compatible-grid { grid-template-columns: minmax(0, 1fr); }
   .chart-wide { grid-column: auto; }
   .run-card { margin-left: calc(var(--branch-depth) * .8rem); }
   .data-table { min-width: 680px; }

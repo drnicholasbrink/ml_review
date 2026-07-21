@@ -72,6 +72,14 @@ def test_atlas_routes_build_serve_cache_and_stale_without_mutating_project_manif
     assert artifact.headers["Cross-Origin-Resource-Policy"] == "same-origin"
     assert client.get(f"{page_url}/data/{'0' * 64}.parquet").status_code == 404
     assert client.get(f"{page_url}/data/not-a-hash.parquet").status_code == 404
+    preview = client.get(f"{page_url}/preview/{fingerprint}.json")
+    assert preview.status_code == 200
+    assert [row["Title"] for row in preview.json["rows"]] == ["Atlas study", "Second study"]
+    atlas_id = preview.json["rows"][0]["atlas_id"]
+    record = client.get(f"{page_url}/preview/{fingerprint}/records/{atlas_id}.json")
+    assert record.status_code == 200
+    assert record.json["Abstract"] == "An abstract"
+    assert client.get(f"{page_url}/preview/{'0' * 64}.json").status_code == 404
 
     source = pd.read_csv(path / "embeddings.csv")
     source.loc[0, "Title"] = "Changed title"
@@ -92,6 +100,7 @@ def test_atlas_data_is_project_scoped(tmp_path: Path):
 
     response = client.get(f"/projects/{second['project_id']}/atlas/data/{fingerprint}.parquet")
     assert response.status_code == 404
+    assert client.get(f"/projects/{second['project_id']}/atlas/preview/{fingerprint}.json").status_code == 404
 
 
 def test_atlas_build_requires_csrf_when_protection_is_enabled(tmp_path: Path):

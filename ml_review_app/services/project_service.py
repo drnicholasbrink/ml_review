@@ -106,9 +106,31 @@ def invalidate_outputs(manifest: dict[str, Any], stage: str) -> None:
     for key in metadata_keys:
         manifest.pop(key, None)
     if "ai_screening_full_results" in file_keys:
+        for key in ("human_screening_decisions", "human_screening_reviewed_results"):
+            files.pop(key, None)
+        for key in ("human_review_rows", "human_review_pending_rows", "final_screening_decision_counts"):
+            manifest.pop(key, None)
         for key in ("human_evaluation_metrics", "human_evaluation_comparison"):
             files.pop(key, None)
         manifest.pop("human_evaluation", None)
+        invalidate_extraction(manifest)
+
+
+def invalidate_extraction(manifest: dict[str, Any]) -> None:
+    """Clear extraction references after final screening decisions change."""
+
+    files = manifest.setdefault("files", {})
+    for key in (
+        "ai_extraction_full_results", "ai_extraction_full_results_json", "study_characteristics",
+        "effect_estimates", "extraction_summary",
+    ):
+        files.pop(key, None)
+    for key in (
+        "extraction_rows", "extraction_candidate_rows", "extraction_confidence_counts",
+        "extraction_completeness_counts", "extraction_model", "extraction_include_uncertain",
+        "extraction_last_scope",
+    ):
+        manifest.pop(key, None)
 
 
 def list_projects(runtime_dir: Path) -> list[dict[str, Any]]:

@@ -5,7 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from flask import Blueprint, Response, current_app, redirect, render_template, request, send_file, url_for
+import pyarrow.parquet as pq
+from flask import Blueprint, Response, current_app, jsonify, redirect, render_template, request, send_file, url_for
 
 from ..services.atlas_service import ATLAS_DIRECTORY, atlas_status, build_atlas
 from ..services.project_service import load_manifest, project_dir
@@ -58,6 +59,44 @@ def data(project_id: str, fingerprint: str):
     response = send_file(artifact, mimetype="application/vnd.apache.parquet", conditional=True)
     response.headers["Cache-Control"] = "private, max-age=31536000, immutable"
     return response
+
+
+def _current_artifact(project_id: str, fingerprint: str) -> Path | None:
+    if not FINGERPRINT_PATTERN.fullmatch(fingerprint):
+        return None
+    path = project_dir(current_app.config["RUNTIME_DIR"], project_id)
+    manifest = load_manifest(path)
+    status = atlas_status(path, manifest, assets_ready=_assets_ready())
+    record = status.get("record") or {}
+    artifact = path / ATLAS_DIRECTORY / f"{fingerprint}.parquet"
+    if status.get("state") != "ready" or record.get("fingerprint") != fingerprint or not artifact.is_file():
+        return None
+    return artifact
+
+
+@bp.get("/preview/<fingerprint>.json")
+def preview(project_id: str, fingerprint: str):
+    """Serve a compact, project-scoped Atlas view for browsers without WASM workers."""
+
+    artifact = _current_artifact(project_id, fingerprint)
+    if artifact is None:
+        return Response(status=404)
+    columns = [
+        "atlas_id", "atlas_x", "atlas_y", "neighbors", "Title", "Authors", "Journal", "Date",
+        "DOI", "Source", "Year", "Cluster", "ai_decision", "ai_confidence", "ai_exclusion_reason",
+    ]
+    rows = pq.read_table(artifact, columns=columns).to_pylist()
+    return jsonify({"fingerprint": fingerprint, "rows": rows})
+
+
+@bp.get("/preview/<fingerprint>/records/<path:atlas_id>.json")
+def preview_record(project_id: str, fingerprint: str, atlas_id: str):
+    artifact = _current_artifact(project_id, fingerprint)
+    if artifact is None:
+        return Response(status=404)
+    rows = pq.read_table(artifact, columns=["atlas_id", "Abstract"]).to_pylist()
+    match = next((row for row in rows if row["atlas_id"] == atlas_id), None)
+    return jsonify(match) if match is not None else (jsonify({"error": "Atlas record not found"}), 404)
 
 
 @bp.after_request

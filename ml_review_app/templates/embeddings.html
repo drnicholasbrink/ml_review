@@ -29,6 +29,11 @@
   {% endif %}
 </section>
 {% if manifest.files.embeddings %}
+<section class="summary-cards" aria-label="Embedding provenance">
+  <div class="summary-card"><strong>{{ manifest.embedding_rows or '—' }}</strong><span>Embedded records</span></div>
+  <div class="summary-card"><strong>{{ manifest.embedding_model or 'Unknown' }}</strong><span>Embedding model</span></div>
+  <div class="summary-card"><strong>{{ manifest.embedding_truncated_rows or 0 }}</strong><span>Truncated inputs</span></div>
+</section>
 <a class="button" href="{{ url_for('exports.download', project_id=manifest.project_id, filename=manifest.files.embeddings) }}">Download embeddings CSV</a>
 <a class="button secondary" href="{{ url_for('clustering.clustering', project_id=manifest.project_id) }}">Continue to clustering</a>
 {% endif %}

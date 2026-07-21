@@ -157,7 +157,7 @@ function highlightTrace(points, name, color, symbol) {
   return {
     x: points.map(row => row.TSNE_1), y: points.map(row => row.TSNE_2),
     text: points.map(row => row.Title || row.RecordID), customdata: points.map(row => row.PointID),
-    mode: 'markers', type: 'scattergl', name, showlegend: points.length > 0,
+    mode: 'markers', type: points.length <= 2000 ? 'scatter' : 'scattergl', name, showlegend: points.length > 0,
     marker: {color, symbol, size: 14, opacity: 1, line:{color:'#ffffff',width:1.5}},
     hovertemplate: `<b>${name}</b><br>%{text}<br>Cluster %{customdata[1]}<extra></extra>`
   };
@@ -170,7 +170,7 @@ function renderScatter(keywordPointIds = [], studyPointIds = []) {
   const baseTrace = {
     x: rows.map(row => row.TSNE_1), y: rows.map(row => row.TSNE_2),
     text: rows.map(row => row.Title || row.RecordID), customdata: rows.map(row => [row.PointID, row.Cluster]),
-    mode: 'markers', type: 'scattergl', name: 'All records', showlegend: false,
+    mode: 'markers', type: rows.length <= 2000 ? 'scatter' : 'scattergl', name: 'All records', showlegend: false,
     marker: {color: rows.map(row => row.Cluster), colorscale: 'Viridis', size: 10, opacity: searchActive ? 0.2 : 0.85},
     hovertemplate: '%{text}<br>Cluster %{customdata[1]}<extra></extra>'
   };
@@ -192,9 +192,16 @@ async function loadPointDetails(pointId) {
     if (!response.ok) throw new Error(record.error || 'Record could not be loaded');
     const heading = document.createElement('h2'); heading.textContent = record.Title || 'Untitled record';
     const meta = document.createElement('p'); meta.className = 'record-meta'; meta.textContent = [record.Authors, record.Journal, record.Date, record.PMID ? `PMID ${record.PMID}` : record.RecordID].filter(Boolean).join(' · ');
+    const sourceLinks = document.createElement('div'); sourceLinks.className = 'form-actions record-links';
+    if (/^\d+$/.test(String(record.PMID || ''))) {
+      const pubmed = document.createElement('a'); pubmed.className = 'button secondary'; pubmed.href = `https://pubmed.ncbi.nlm.nih.gov/${record.PMID}/`; pubmed.target = '_blank'; pubmed.rel = 'noopener'; pubmed.textContent = 'Open in PubMed'; sourceLinks.appendChild(pubmed);
+    }
+    if (String(record.DOI || '').trim()) {
+      const doi = document.createElement('a'); doi.className = 'button secondary'; doi.href = `https://doi.org/${encodeURIComponent(String(record.DOI).trim())}`; doi.target = '_blank'; doi.rel = 'noopener'; doi.textContent = 'Open DOI'; sourceLinks.appendChild(doi);
+    }
     const abstractHeading = document.createElement('h3'); abstractHeading.textContent = 'Abstract';
     const abstract = document.createElement('p'); abstract.className = 'abstract-text'; abstract.textContent = record.Abstract || 'No abstract was supplied.';
-    panel.replaceChildren(heading, meta, abstractHeading, abstract);
+    panel.replaceChildren(heading, meta, sourceLinks, abstractHeading, abstract);
   } catch (error) {
     panel.replaceChildren(Object.assign(document.createElement('p'), {className: 'notice', textContent: error.message}));
   }

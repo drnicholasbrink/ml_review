@@ -26,6 +26,7 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
     from .blueprints.clustering import bp as clustering_bp
     from .blueprints.screening import bp as screening_bp
     from .blueprints.evaluation import bp as evaluation_bp
+    from .blueprints.extraction import bp as extraction_bp
     from .blueprints.exports import bp as exports_bp
 
     app.register_blueprint(main_bp)
@@ -37,6 +38,7 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
     app.register_blueprint(clustering_bp)
     app.register_blueprint(screening_bp)
     app.register_blueprint(evaluation_bp)
+    app.register_blueprint(extraction_bp)
     app.register_blueprint(exports_bp)
 
     @app.context_processor
@@ -80,5 +82,19 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
             title="Form expired",
             message="This form is missing or has an expired security token. Reload the page and try again.",
         ), 400
+
+    @app.after_request
+    def security_headers(response):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob:; "
+            "worker-src 'self' blob:; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        )
+        return response
 
     return app

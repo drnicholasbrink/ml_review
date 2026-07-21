@@ -7,8 +7,148 @@ from ml_review_app.services.clustering_service import build_cluster_search, clus
 from ml_review_app.services.deduplication_service import deduplicate_records, normalize_text
 from ml_review_app.services.embedding_service import MAX_EMBEDDING_TEXT_LENGTH, add_embeddings
 from ml_review_app.services.evaluation_service import build_screening_evaluation, compare_with_human
+from ml_review_app.services.extraction_service import (
+    DataExtraction,
+    EffectEstimate,
+    ExposureMetric,
+    GeographicLocation,
+    OutcomeMeasure,
+    extract_csv,
+    write_extraction_exports,
+)
 from ml_review_app.services.import_service import build_column_mapping, normalize_records, profile_csv
-from ml_review_app.services.screening_service import MAX_SCREENING_RECORD_LENGTH, ScreeningDecision, screen_csv
+from ml_review_app.services.screening_service import (
+    MAX_SCREENING_RECORD_LENGTH,
+    ScreeningDecision,
+    apply_human_reviews,
+    save_human_review,
+    screen_csv,
+)
+
+
+def test_human_screening_review_preserves_ai_audit_and_sets_final_decision(tmp_path: Path):
+    screening_path = tmp_path / "screening.csv"
+    reviews_path = tmp_path / "reviews.csv"
+    reviewed_path = tmp_path / "reviewed.csv"
+    screening = pd.DataFrame([
+        {
+            "RecordID": "one", "PMID": "123", "Title": "Heat and pregnancy", "Abstract": "Study abstract.",
+            "ai_decision": "uncertain", "ai_confidence": "low", "ai_reasoning": "Insufficient detail.",
+        }
+    ])
+    screening.to_csv(screening_path, index=False)
+    keyed = apply_human_reviews(screening)
+    assert bool(keyed.loc[0, "requires_human_review"])
+    assert keyed.loc[0, "final_decision"] == "uncertain"
+
+    reviewed = save_human_review(
+        screening_path, reviews_path, reviewed_path,
+        record_key=keyed.loc[0, "record_key"], decision="include", note="Confirmed against full text.",
+    )
+    assert reviewed.loc[0, "ai_decision"] == "uncertain"
+    assert reviewed.loc[0, "final_decision"] == "include"
+    assert reviewed.loc[0, "final_decision_source"] == "human"
+    assert not bool(reviewed.loc[0, "requires_human_review"])
+    assert reviewed.loc[0, "human_note"] == "Confirmed against full text."
+
+    cleared = save_human_review(
+        screening_path, reviews_path, reviewed_path,
+        record_key=keyed.loc[0, "record_key"], decision="", note="",
+    )
+    assert cleared.loc[0, "final_decision"] == "uncertain"
+    assert cleared.loc[0, "final_decision_source"] == "ai"
+
+
+def test_structured_extraction_resumes_and_writes_publication_exports(tmp_path: Path):
+    source = tmp_path / "screening.csv"
+    pd.DataFrame(
+        {
+            "RecordID": ["one", "two", "three"],
+            "PMID": ["1", "2", "3"],
+            "Title": ["Included one", "Uncertain two", "Included three"],
+            "Abstract": ["Abstract one", "Abstract two", "Abstract three"],
+            "ai_decision": ["include", "uncertain", "include"],
+            "ai_confidence": ["high", "low", "medium"],
+        }
+    ).to_csv(source, index=False)
+    parsed = DataExtraction(
+        population_description="Pregnant participants",
+        location=GeographicLocation(country="South Africa"),
+        exposures=[ExposureMetric(metric_type="temperature", unit="°C")],
+        outcomes=[OutcomeMeasure(outcome_type="pregnancy outcome", specific_outcome="miscarriage")],
+        sample_size="1,000 pregnancies",
+        study_design="cohort",
+        statistical_methods=["logistic regression"],
+        effect_estimates=[EffectEstimate(estimate_type="odds ratio", value="1.20", confidence_interval="95% CI 1.05-1.37")],
+        key_finding_summary="Higher heat exposure was associated with miscarriage.",
+        data_completeness="partial",
+        extraction_confidence="medium",
+    )
+
+    class FakeResponses:
+        def __init__(self):
+            self.calls = []
+
+        def parse(self, **kwargs):
+            self.calls.append(kwargs)
+            return SimpleNamespace(output_parsed=parsed)
+
+    responses = FakeResponses()
+    fake_client = SimpleNamespace(responses=responses)
+    output = tmp_path / "ai_extraction_full_results.csv"
+    test_result, candidate_count = extract_csv(
+        source,
+        "Include eligible pregnancy studies.",
+        output,
+        api_key="test-key",
+        model="gpt-5.6-luna",
+        include_uncertain=True,
+        limit=1,
+        client=fake_client,
+    )
+    assert candidate_count == 3
+    assert len(test_result) == 1
+
+    full_result, candidate_count = extract_csv(
+        source,
+        "Include eligible pregnancy studies.",
+        output,
+        api_key="test-key",
+        model="gpt-5.6-luna",
+        include_uncertain=True,
+        client=fake_client,
+    )
+    assert candidate_count == 3
+    assert len(full_result) == 3
+    assert len(responses.calls) == 3
+    assert responses.calls[0]["store"] is False
+    assert full_result["country"].tolist() == ["South Africa"] * 3
+    assert len(full_result.loc[0, "effect_estimates"]) > 10
+
+    reviewed_source = pd.read_csv(source)
+    reviewed_source["final_decision"] = ["exclude", "uncertain", "include"]
+    reviewed_source.to_csv(source, index=False)
+    filtered_result, candidate_count = extract_csv(
+        source,
+        "Include eligible pregnancy studies.",
+        output,
+        api_key="test-key",
+        model="gpt-5.6-luna",
+        include_uncertain=False,
+        client=fake_client,
+    )
+    assert candidate_count == 1
+    assert filtered_result["RecordID"].tolist() == ["three"]
+    assert len(responses.calls) == 3
+
+    exports = write_extraction_exports(full_result, tmp_path)
+    assert set(exports) == {
+        "ai_extraction_full_results_json",
+        "study_characteristics",
+        "effect_estimates",
+        "extraction_summary",
+    }
+    assert len(pd.read_csv(tmp_path / "effect_estimates.csv")) == 3
 
 
 def test_import_mapping_normalize_and_profile(tmp_path: Path):

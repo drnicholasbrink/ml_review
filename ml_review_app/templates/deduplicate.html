@@ -10,16 +10,25 @@
   <p>Select one or more columns to match duplicate records. Title is the default.</p>
   <div class="grid">
     {% for column in columns %}
-      <label><input type="checkbox" name="match_columns" value="{{ column }}" {% if column == 'Title' %}checked{% endif %}> {{ column }}</label>
+      <label><input type="checkbox" name="match_columns" value="{{ column }}" {% if column in selected_match_columns %}checked{% endif %}> {{ column }}</label>
     {% endfor %}
   </div>
   <button type="submit" {% if not columns %}disabled{% endif %}>Run deduplication</button>
 </form>
 {% if manifest.files.deduplicated_records %}
+  <section class="summary-cards" aria-label="Deduplication summary">
+    <div class="summary-card"><strong>{{ manifest.deduplication.kept_rows }}</strong><span>Records retained</span></div>
+    <div class="summary-card"><strong>{{ manifest.deduplication.duplicate_report_rows }}</strong><span>Records in duplicate groups</span></div>
+    <div class="summary-card"><strong>{{ manifest.deduplication.match_columns | join(', ') }}</strong><span>Match fields</span></div>
+  </section>
   <p><a class="button" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='deduplicated_records.csv') }}">Download deduplicated CSV</a>
   <a class="button secondary" href="{{ url_for('embeddings.embeddings', project_id=manifest.project_id) }}">Continue to embeddings</a></p>
 {% endif %}
 {% if report_rows %}
-<section class="card"><h2>Duplicate report preview</h2><pre>{{ report_rows }}</pre></section>
+<section class="card"><h2>Duplicate report preview</h2><p class="page-intro">Only records belonging to a duplicate group are shown.</p>
+  <div class="table-scroll"><table class="data-table"><thead><tr><th>Record ID</th><th>Title</th><th>Group size</th><th>Status</th></tr></thead><tbody>
+    {% for row in report_rows %}<tr><td>{{ row.RecordID }}</td><td>{{ row.Title }}</td><td>{{ row['_duplicate_group_size'] }}</td><td><span class="status-pill {{ 'complete' if row.dedupe_status == 'kept' else 'blocked' }}">{{ row.dedupe_status | title }}</span></td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
 {% endif %}
 {% endblock %}

@@ -65,9 +65,33 @@ async function start() {
       mvp: { mainModule: wasmMvp, mainWorker: workerMvp },
       eh: { mainModule: wasmEh, mainWorker: workerEh }
     };
-    const bundle = await duckdb.selectBundle(bundles);
-    database = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), new Worker(bundle.mainWorker));
-    await database.instantiate(bundle.mainModule, bundle.pthreadWorker);
+    const selectedBundle = await duckdb.selectBundle(bundles);
+    const candidates = selectedBundle.mainWorker === bundles.mvp.mainWorker
+      ? [selectedBundle]
+      : [selectedBundle, bundles.mvp];
+    const failures = [];
+    for (const bundle of candidates) {
+      const worker = new Worker(bundle.mainWorker);
+      const candidate = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), worker);
+      let timer;
+      try {
+        await Promise.race([
+          candidate.instantiate(bundle.mainModule, bundle.pthreadWorker),
+          new Promise((_, reject) => {
+            worker.addEventListener("error", () => reject(new Error("The analytical worker could not start.")), { once: true });
+            timer = window.setTimeout(() => reject(new Error("The analytical worker timed out during startup.")), 12000);
+          })
+        ]);
+        window.clearTimeout(timer);
+        database = candidate;
+        break;
+      } catch (error) {
+        window.clearTimeout(timer);
+        worker.terminate();
+        failures.push(error instanceof Error ? error.message : "Unknown worker error");
+      }
+    }
+    if (!database) throw new Error(`Evidence Atlas could not start its local analytical engine. ${failures.join(" ")}`);
     await database.open({ filesystem: { forceFullHTTPReads: true } });
     connection = await database.connect();
 
@@ -141,6 +165,7 @@ async function start() {
     loading.hidden = true;
     errorMessage.textContent = error instanceof Error ? error.message : "Reload the page and try again.";
     errorPanel.hidden = false;
+    window.dispatchEvent(new CustomEvent("ml-review-atlas-fallback", { detail: { message: errorMessage.textContent } }));
   }
 }
 

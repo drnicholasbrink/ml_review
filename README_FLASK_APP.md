@@ -33,7 +33,7 @@ npm run build:atlas
 flask --app wsgi:app run --debug
 ```
 
-The local frontend build requires Node.js 22. Docker builds the pinned Atlas bundle automatically.
+The local frontend build requires Node.js 22. Docker builds the pinned Atlas bundle automatically and installs the exact tested Python set from `requirements_app.lock`; notebook/development setup continues to use `environment.yml` or `requirements_.txt`.
 
 ## Workflow
 
@@ -44,12 +44,26 @@ The local frontend build requires Node.js 22. Docker builds the pinned Atlas bun
 - Optionally build a reproducible Evidence Atlas from every embedded record for local search, cross-filtering, nearest-neighbour inspection, and selection export. Atlas browser state is project/fingerprint scoped and does not change clustering or screening selections.
 - Analyze WCSS before choosing K for every root or child projection, then create reproducible t-SNE/K-Means runs in an immutable branch tree with parent navigation and clickable abstract inspection.
 - Select clusters and run resumable OpenAI Structured Outputs screening.
-- Review screening results in a searchable table and explore interactive Plotly funnel, Sankey, confidence, criterion, exclusion, and t-SNE evaluation views.
+- Review source abstracts and AI rationales in a paginated adjudication queue. Human decisions and notes are timestamped, preserve the original AI audit trail, and become the final decisions used downstream.
+- Explore locally served Plotly funnel, Sankey, confidence, criterion, exclusion, and t-SNE evaluation views.
 - Optionally compare AI screening with a human-reference CSV using one-to-one fuzzy title matching and downloadable metrics/mismatches.
-- Download generated CSV artifacts.
+- Run resumable abstract-only structured extraction on a bounded test sample before the full included set, then export nested JSON, study characteristics, effect estimates, and an extraction summary.
+- Download individual artifacts or a publication handoff ZIP containing the protocol inputs, decision audit, evaluation, and extraction outputs. Embeddings and credentials are excluded from the bundle.
 
-AI screening is decision support. Human reviewers must validate prompts and model choices on a sample, review every uncertain and low-confidence result, compare with human screening when available, and record criteria/model/date/prompt changes.
+AI screening and extraction are decision support. Human reviewers must validate prompts and model choices on a sample, review every uncertain and low-confidence screen, validate abstract extraction against source full text, compare with human screening when available, and record criteria/model/date/prompt changes.
 
-## Operational limitations
+## Supported deployment profile
 
-API work runs in the Flask request process. Large searches and screening jobs should use a production job queue before multi-user deployment. The application currently exports CSV files; polished extraction and reporting screens remain future work.
+The supplied Compose profile is a production-like, single-reviewer workstation deployment. It binds only to `127.0.0.1`, requires a non-default session secret, uses one Gunicorn worker to serialize filesystem-backed project writes, exposes liveness/readiness checks, serves chart code locally, and applies CSRF and browser security headers.
+
+API work runs synchronously in the request process so that incremental CSV resume files remain easy to inspect and recover. Keep the browser tab open during a long call. Multi-user or remotely exposed deployment is outside this profile and requires authentication, an external job queue, shared transactional storage, TLS, and an explicit data-governance review.
+
+## Publication handoff checklist
+
+- Confirm the search query, date range, fetched count, and deduplication report.
+- Record and freeze the inclusion/exclusion criteria before the final screening run.
+- Validate the chosen model and prompt behavior on a human-reviewed sample.
+- Resolve every uncertain and low-confidence screening item and sample-check the rest.
+- Compare against an independent human reference when one is available; inspect fuzzy-match mismatches.
+- Validate every extracted field and effect estimate against the full text. The interface extracts from abstracts only.
+- Download the publication bundle and retain the application commit hash alongside it.

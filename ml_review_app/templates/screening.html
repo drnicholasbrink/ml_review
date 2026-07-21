@@ -1,15 +1,16 @@
 {% extends "base.html" %}
 {% block title %}Screening · ML Review{% endblock %}
 {% block content %}
-<h1>{{ manifest.name }} · AI screening</h1>
+<h1>{{ manifest.name }} · Screening and adjudication</h1>
 {% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
 {% if manifest.screening_truncated_rows %}<p class="notice">{{ manifest.screening_truncated_rows }} record{{ '' if manifest.screening_truncated_rows == 1 else 's' }} exceeded the screening input allowance. Screening used the first 100,000 title/abstract characters; the full stored text was retained for human review.</p>{% endif %}
-<p class="notice">AI screening is decision support only. A human reviewer must review all uncertain and low-confidence decisions before making final inclusion decisions.</p>
+<p class="notice">AI screening is decision support only. Review all uncertain and low-confidence decisions, validate a sample of the remaining decisions, and use the human-reviewed export as the final screening record.</p>
 <section class="card stack">
-  <h2>Criteria</h2>
-  <pre>{{ criteria }}</pre>
+  <h2>AI screening</h2>
+  <details><summary>View inclusion and exclusion criteria</summary><pre>{{ criteria }}</pre></details>
   <form method="post" class="stack">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="screen">
     <label>
       <span class="label-with-help">OpenAI API key <a class="info-link" href="https://help.openai.com/en/articles/4936850-where-do-i-find-my-openai-api-key" target="_blank" rel="noopener" aria-label="How to create an OpenAI API key">i</a></span>
       <input type="password" name="openai_api_key" maxlength="512" autocomplete="off" placeholder="{% if fallback_available %}Configured key available{% else %}Enter an OpenAI API key{% endif %}">
@@ -29,61 +30,89 @@
 </section>
 {% if manifest.screening_decision_counts %}
 <section class="card">
-  <h2>Decision counts</h2>
+  <h2>Screening status</h2>
   <div class="summary-cards">
-    {% for decision, count in manifest.screening_decision_counts.items() %}<div class="summary-card"><strong>{{ count }}</strong><span>{{ decision | title }}</span></div>{% endfor %}
+    {% for decision, count in manifest.screening_decision_counts.items() %}<div class="summary-card {{ decision }}"><strong>{{ count }}</strong><span>AI {{ decision | title }}</span></div>{% endfor %}
+    {% if review_stats %}
+      <div class="summary-card"><strong>{{ review_stats.reviewed }}</strong><span>Human reviewed</span></div>
+      <div class="summary-card uncertain"><strong>{{ review_stats.pending }}</strong><span>Required review pending</span></div>
+    {% endif %}
   </div>
   <div class="form-actions">
-    <a class="button" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='ai_screening_full_results.csv') }}">Download screening CSV</a>
+    <a class="button" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='ai_screening_full_results.csv') }}">Download AI screening CSV</a>
+    {% if manifest.files.human_screening_reviewed_results %}<a class="button" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='human_screening_reviewed_results.csv') }}">Download reviewed screening CSV</a>{% endif %}
     <a class="button secondary" href="{{ url_for('evaluation.evaluation', project_id=manifest.project_id) }}">Open evaluation dashboard</a>
   </div>
 </section>
 {% endif %}
-{% if rows %}
+{% if rows is not none %}
 <section class="card">
   <div class="section-heading">
-    <div><h2>Screening results</h2><p class="page-intro">Showing up to 250 records. Filter the table or open a rationale without leaving the page.</p></div>
-    <label class="table-search">Search <input id="screening-search" type="search" placeholder="Title, ID, decision, reason…"></label>
+    <div><h2>Human adjudication queue</h2><p class="page-intro">AI fields remain unchanged. A saved human decision controls the final decision used by extraction and is timestamped in the reviewed export.</p></div>
+    <form method="get" class="review-filter-form">
+      <label>Find records <input type="search" name="q" value="{{ pagination.q }}" placeholder="Title, ID, decision, reason…"></label>
+      <label>Review state
+        <select name="review_filter">
+          <option value="all" {% if pagination.review_filter == 'all' %}selected{% endif %}>All records</option>
+          <option value="needs_review" {% if pagination.review_filter == 'needs_review' %}selected{% endif %}>Required review pending</option>
+          <option value="reviewed" {% if pagination.review_filter == 'reviewed' %}selected{% endif %}>Human reviewed</option>
+        </select>
+      </label>
+      <button type="submit">Apply filter</button>
+    </form>
   </div>
+  <p class="page-intro">Showing {{ pagination.start }}–{{ pagination.end }} of {{ pagination.filtered_count }} matching records.</p>
   <div class="table-scroll">
-    <table id="screening-table" class="data-table screening-table">
+    <table id="screening-table" class="data-table screening-table review-table">
       <colgroup>
-        <col class="col-record">
-        <col class="col-decision">
-        <col class="col-confidence">
-        <col class="col-instrument" span="4">
-        <col class="col-rationale">
+        <col class="col-record"><col class="col-decision"><col class="col-confidence">
+        <col class="col-instrument" span="4"><col class="col-rationale"><col class="col-review">
       </colgroup>
-      <thead><tr><th><button type="button" class="table-sort" data-column="0">Record ↕</button></th><th><button type="button" class="table-sort" data-column="1">Decision ↕</button></th><th><button type="button" class="table-sort" data-column="2">Confidence ↕</button></th><th>Population</th><th>Exposure</th><th>Outcome</th><th>Design</th><th><button type="button" class="table-sort" data-column="7">Reason and rationale ↕</button></th></tr></thead>
+      <thead><tr><th><button type="button" class="table-sort" data-column="0">Record ↕</button></th><th><button type="button" class="table-sort" data-column="1">AI / final ↕</button></th><th><button type="button" class="table-sort" data-column="2">Confidence ↕</button></th><th>Population</th><th>Exposure</th><th>Outcome</th><th>Design</th><th>Source text and rationale</th><th>Human decision</th></tr></thead>
       <tbody>
       {% for row in rows %}
-        <tr data-search="{{ [row.RecordID, row.PMID, row.Title, row.ai_decision, row.ai_confidence, row.ai_exclusion_reason, row.ai_reasoning] | join(' ') | lower }}">
-          <td><strong>{{ row.Title or 'Untitled record' }}</strong><small>{{ row.PMID or row.RecordID }}</small>{% if row.ai_input_truncated %}<span class="status-pill blocked">Excerpt used</span>{% endif %}</td>
-          <td><span class="decision-badge {{ row.ai_decision }}">{{ row.ai_decision | title }}</span></td>
+        <tr>
+          <td><strong>{{ row.Title or 'Untitled record' }}</strong><small>{{ row.PMID or row.RecordID }}</small>{% if row.ai_input_truncated %}<span class="status-pill blocked">AI used excerpt</span>{% endif %}{% if row.requires_human_review %}<span class="status-pill attention">Review required</span>{% endif %}</td>
+          <td><span class="decision-badge {{ row.ai_decision }}">AI {{ row.ai_decision | title }}</span><small><span class="decision-badge {{ row.final_decision }}">Final {{ row.final_decision | title }}</span> · {{ row.final_decision_source | title }}</small></td>
           <td>{{ row.ai_confidence | title }}</td>
           <td class="instrument {{ 'match' if row.ai_population_match else 'miss' }}">{{ '✓' if row.ai_population_match else '—' }}</td>
           <td class="instrument {{ 'match' if row.ai_exposure_match else 'miss' }}">{{ '✓' if row.ai_exposure_match else '—' }}</td>
           <td class="instrument {{ 'match' if row.ai_outcome_match else 'miss' }}">{{ '✓' if row.ai_outcome_match else '—' }}</td>
           <td class="instrument {{ 'match' if row.ai_study_design_appropriate else 'miss' }}">{{ '✓' if row.ai_study_design_appropriate else '—' }}</td>
-          <td>{% if row.ai_exclusion_reason %}<strong>{{ row.ai_exclusion_reason | replace('_', ' ') | title }}</strong>{% endif %}<details><summary>View rationale</summary><p>{{ row.ai_reasoning }}</p></details></td>
+          <td>
+            {% if row.ai_exclusion_reason %}<strong>{{ row.ai_exclusion_reason | replace('_', ' ') | title }}</strong>{% endif %}
+            <details><summary>View abstract and AI rationale</summary><h4>Abstract</h4><p>{{ row.Abstract or 'No abstract supplied.' }}</p><h4>AI rationale</h4><p>{{ row.ai_reasoning }}</p></details>
+          </td>
+          <td>
+            <form method="post" class="review-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="review"><input type="hidden" name="record_key" value="{{ row.record_key }}">
+              <input type="hidden" name="page" value="{{ pagination.page }}"><input type="hidden" name="q" value="{{ pagination.q }}"><input type="hidden" name="review_filter" value="{{ pagination.review_filter }}">
+              <label>Decision
+                <select name="human_decision" aria-label="Human decision for {{ row.Title }}">
+                  <option value="" {% if not row.human_decision %}selected{% endif %}>No human decision</option>
+                  <option value="include" {% if row.human_decision == 'include' %}selected{% endif %}>Include</option>
+                  <option value="exclude" {% if row.human_decision == 'exclude' %}selected{% endif %}>Exclude</option>
+                  <option value="uncertain" {% if row.human_decision == 'uncertain' %}selected{% endif %}>Uncertain</option>
+                </select>
+              </label>
+              <label>Audit note <textarea name="human_note" maxlength="2000" rows="3" aria-label="Audit note for {{ row.Title }}">{{ row.human_note }}</textarea></label>
+              <button type="submit">Save review</button>
+              {% if row.human_reviewed_at %}<small>Saved {{ row.human_reviewed_at }}</small>{% endif %}
+            </form>
+          </td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
-  <p id="screening-table-count" class="page-intro"></p>
+  {% if pagination.pages > 1 %}<nav class="pagination" aria-label="Screening pages">
+    {% if pagination.page > 1 %}<a class="button secondary" href="{{ url_for('screening.screening', project_id=manifest.project_id, page=pagination.page-1, q=pagination.q, review_filter=pagination.review_filter) }}">Previous</a>{% endif %}
+    <span>Page {{ pagination.page }} of {{ pagination.pages }}</span>
+    {% if pagination.page < pagination.pages %}<a class="button secondary" href="{{ url_for('screening.screening', project_id=manifest.project_id, page=pagination.page+1, q=pagination.q, review_filter=pagination.review_filter) }}">Next</a>{% endif %}
+  </nav>{% endif %}
 </section>
 <script>
-const screeningSearch = document.getElementById('screening-search');
 const screeningRows = [...document.querySelectorAll('#screening-table tbody tr')];
-const screeningCount = document.getElementById('screening-table-count');
-function filterScreeningTable() {
-  const query = screeningSearch.value.trim().toLowerCase();
-  let visible = 0;
-  screeningRows.forEach(row => { const show = !query || row.dataset.search.includes(query); row.hidden = !show; if (show) visible += 1; });
-  screeningCount.textContent = `${visible} of ${screeningRows.length} preview records shown`;
-}
-screeningSearch.addEventListener('input', filterScreeningTable);
 document.querySelectorAll('#screening-table .table-sort').forEach(button => button.addEventListener('click', () => {
   const column = Number(button.dataset.column);
   const ascending = button.dataset.direction !== 'asc';
@@ -91,9 +120,7 @@ document.querySelectorAll('#screening-table .table-sort').forEach(button => butt
   screeningRows.forEach(row => row.parentElement.appendChild(row));
   document.querySelectorAll('#screening-table .table-sort').forEach(item => delete item.dataset.direction);
   button.dataset.direction = ascending ? 'asc' : 'desc';
-  filterScreeningTable();
 }));
-filterScreeningTable();
 </script>
 {% endif %}
 {% endblock %}

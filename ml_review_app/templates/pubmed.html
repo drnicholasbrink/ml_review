@@ -12,11 +12,11 @@
     <input type="password" name="pubmed_api_key" maxlength="512" autocomplete="off" placeholder="{% if fallback_available %}Configured key available{% else %}Optional API key{% endif %}">
     <small>Optional. The entered key is used for this request only and is never written to the project.</small>
   </label>
-  <label>Start date <input name="mindate" maxlength="10" inputmode="numeric" placeholder="YYYY/MM/DD"></label>
-  <label>End date <input name="maxdate" maxlength="10" inputmode="numeric" placeholder="YYYY/MM/DD"></label>
-  <label>Maximum records to fetch <input type="number" min="1" max="10000" name="retmax" value="500"></label>
+  <label>Start date <input name="mindate" maxlength="10" inputmode="numeric" placeholder="YYYY/MM/DD" value="{{ mindate }}"></label>
+  <label>End date <input name="maxdate" maxlength="10" inputmode="numeric" placeholder="YYYY/MM/DD" value="{{ maxdate }}"></label>
+  <label>Maximum records to fetch <input type="number" min="1" max="10000" name="retmax" value="{{ retmax }}"></label>
   <div class="form-actions"><button name="action" value="count" type="submit" {% if not query %}disabled{% endif %}>Count records</button><button class="secondary" name="action" value="fetch" type="submit" {% if not query %}disabled{% endif %}>Fetch records</button></div>
 </form>
-{% if count is not none %}<p class="card">Count: {{ count }}</p>{% endif %}
+{% if count is not none %}<p class="card"><strong>Count: {{ count }}</strong>{% if mindate and maxdate %}<br><small>Scope: {{ mindate }} through {{ maxdate }}. Fetch remains capped at {{ retmax }} records.</small>{% else %}<br><small>All-date query. Fetch remains capped at {{ retmax }} records.</small>{% endif %}</p>{% endif %}
 {% if manifest.files.pubmed_results_complete %}<a class="button" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='pubmed_results_complete.csv') }}">Download PubMed CSV</a>{% endif %}
 {% endblock %}

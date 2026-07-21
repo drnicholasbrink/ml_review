@@ -45,7 +45,12 @@ def import_data(project_id: str):
         except (ValueError, pd.errors.ParserError, pd.errors.EmptyDataError, UnicodeDecodeError):
             error = "The saved upload could not be read as CSV. Upload a replacement file."
             status_code = 400
-    return render_template("import.html", manifest=manifest, columns=columns, canonical_columns=CANONICAL_COLUMNS, preview=preview, profile=profile, error=error), status_code
+    mapping = {
+        canonical: source
+        for canonical, source in manifest.get("column_mapping", {}).items()
+        if canonical in CANONICAL_COLUMNS and source in columns
+    }
+    return render_template("import.html", manifest=manifest, columns=columns, canonical_columns=CANONICAL_COLUMNS, mapping=mapping, preview=preview, profile=profile, error=error), status_code
 
 
 @bp.post("/map")
@@ -71,7 +76,12 @@ def map_columns(project_id: str):
         return redirect(url_for("imports.deduplicate", project_id=project_id))
     except ValueError as exc:
         preview_df, columns = read_csv_preview(upload_path)
-        return render_template("import.html", manifest=manifest, columns=columns, canonical_columns=CANONICAL_COLUMNS, preview=preview_df.to_dict(orient="records"), profile=profile_csv(upload_path), error=str(exc)), 400
+        submitted_mapping = {
+            canonical: request.form.get(canonical, "").strip()
+            for canonical in CANONICAL_COLUMNS
+            if request.form.get(canonical, "").strip() in columns
+        }
+        return render_template("import.html", manifest=manifest, columns=columns, canonical_columns=CANONICAL_COLUMNS, mapping=submitted_mapping, preview=preview_df.to_dict(orient="records"), profile=profile_csv(upload_path), error=str(exc)), 400
 
 
 @bp.route("/deduplicate", methods=["GET", "POST"])
@@ -83,8 +93,10 @@ def deduplicate(project_id: str):
     columns = list(df_preview.columns) if df_preview is not None else []
     error = None
     report_rows = None
+    selected_match_columns = manifest.get("deduplication", {}).get("match_columns", ["Title"])
     if request.method == "POST":
         match_columns = request.form.getlist("match_columns") or ["Title"]
+        selected_match_columns = match_columns
         try:
             if not input_path.exists():
                 raise ValueError("Upload and map a CSV before deduplicating records")
@@ -98,5 +110,10 @@ def deduplicate(project_id: str):
             report_rows = report.head(50).to_dict(orient="records")
         except ValueError as exc:
             error = str(exc)
+    if report_rows is None:
+        report_name = manifest.get("files", {}).get("duplicate_report")
+        report_path = path / report_name if report_name else None
+        if report_path and report_path.is_file():
+            report_rows = pd.read_csv(report_path).head(50).fillna("").to_dict(orient="records")
     status_code = 400 if error else 200
-    return render_template("deduplicate.html", manifest=manifest, columns=columns, error=error, report_rows=report_rows), status_code
+    return render_template("deduplicate.html", manifest=manifest, columns=columns, selected_match_columns=selected_match_columns, error=error, report_rows=report_rows), status_code
