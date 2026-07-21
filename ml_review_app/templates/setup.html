@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Setup · ML Review{% endblock %}
+{% block content %}
+<h1>{{ manifest.name }} · Setup</h1>
+<form method="post" class="card stack">
+  <label>PubMed search strategy
+    <textarea name="search_strategy" rows="8">{{ search_strategy }}</textarea>
+  </label>
+  <label>Inclusion/exclusion criteria
+    <textarea name="inclusion_criteria" rows="10">{{ criteria }}</textarea>
+  </label>
+  <button type="submit">Save and continue</button>
+</form>
+<p><a class="button secondary" href="{{ url_for('pubmed.pubmed', project_id=manifest.project_id) }}">Use PubMed search</a> <a class="button secondary" href="{{ url_for('imports.import_data', project_id=manifest.project_id) }}">Upload CSV</a></p>
+{% endblock %}

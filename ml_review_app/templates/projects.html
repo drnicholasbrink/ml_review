@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Projects · ML Review{% endblock %}
+{% block content %}
+<h1>Projects</h1>
+<form method="post" class="card form-inline">
+  <label>New project name <input name="name" placeholder="Heat and maternal health review"></label>
+  <button type="submit">Create project</button>
+</form>
+<div class="grid">
+{% for project in projects %}
+  <article class="card">
+    <h2>{{ project.name }}</h2>
+    <p><code>{{ project.project_id }}</code></p>
+    <a href="{{ url_for('projects.setup', project_id=project.project_id) }}">Open</a>
+  </article>
+{% else %}
+  <p>No projects yet.</p>
+{% endfor %}
+</div>
+{% endblock %}

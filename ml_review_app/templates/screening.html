@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Screening · ML Review{% endblock %}
+{% block content %}
+<h1>{{ manifest.name }} · AI screening</h1>
+<section class="card"><h2>Criteria</h2><pre>{{ criteria }}</pre><form method="post"><button type="submit">Run demo screening</button></form></section>
+{% if manifest.screening_decision_counts %}<section class="card"><h2>Decision counts</h2><pre>{{ manifest.screening_decision_counts }}</pre><a class="button" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='ai_screening_full_results.csv') }}">Download screening CSV</a></section>{% endif %}
+{% if rows %}<section class="card"><h2>Preview</h2><pre>{{ rows }}</pre></section>{% endif %}
+{% endblock %}

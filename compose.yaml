@@ -1,0 +1,10 @@
+services:
+  ml-review:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      ML_REVIEW_RUNTIME_DIR: /app/runtime
+      ML_REVIEW_SECRET_KEY: change-me-for-local-use
+    volumes:
+      - ./runtime:/app/runtime

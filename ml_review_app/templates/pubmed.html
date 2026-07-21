@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}PubMed · ML Review{% endblock %}
+{% block content %}
+<h1>{{ manifest.name }} · PubMed search</h1>
+{% if error %}<p class="notice">{{ error }}</p>{% endif %}
+<section class="card"><h2>Query</h2><pre>{{ query }}</pre></section>
+<form method="post" class="card stack">
+  <label>PubMed API key <input type="password" name="pubmed_api_key" autocomplete="off"></label>
+  <label>Start date <input name="mindate" placeholder="YYYY/MM/DD"></label>
+  <label>End date <input name="maxdate" placeholder="YYYY/MM/DD"></label>
+  <label>Max records for prototype fetch <input type="number" min="1" max="10000" name="retmax" value="500"></label>
+  <div><button name="action" value="count" type="submit">Count records</button> <button name="action" value="fetch" type="submit">Fetch records</button></div>
+</form>
+{% if count is not none %}<p class="card">Count: {{ count }}</p>{% endif %}
+{% if manifest.files.pubmed_results_complete %}<a class="button" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='pubmed_results_complete.csv') }}">Download PubMed CSV</a>{% endif %}
+{% endblock %}
