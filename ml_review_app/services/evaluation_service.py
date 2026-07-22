@@ -167,8 +167,27 @@ def _decision_column(df: pd.DataFrame) -> str | None:
     return next((column for column in df.columns if column.strip().lower() in aliases), None)
 
 
-def _positive_decisions(series: pd.Series) -> pd.Series:
-    return _normalized_series(series).isin({"include", "included", "yes", "true", "1", "eligible", "retain"})
+def _positive_decisions(series: pd.Series, *, uncertain_is_positive: bool = False) -> pd.Series:
+    positive = {"include", "included", "yes", "true", "1", "eligible", "retain"}
+    if uncertain_is_positive:
+        positive.update({"uncertain", "maybe", "unsure"})
+    return _normalized_series(series).isin(positive)
+
+
+def workflow_human_reference(df: pd.DataFrame) -> pd.DataFrame:
+    """Return only explicit human decisions from the staged review workflow."""
+
+    if "Title" not in df.columns:
+        raise ValueError("Workflow screening results are missing the Title column")
+    abstract = _normalized_series(df.get("human_decision", pd.Series(index=df.index, dtype="object")))
+    full_text = _normalized_series(df.get("full_text_decision", pd.Series(index=df.index, dtype="object")))
+    explicit = abstract.where(~full_text.isin(DECISIONS), full_text)
+    reviewed = explicit.isin(DECISIONS)
+    if not reviewed.any():
+        raise ValueError("Record at least one human screening decision before using workflow decisions")
+    reference = df.loc[reviewed, ["Title"]].copy()
+    reference["human_decision"] = explicit.loc[reviewed].values
+    return reference.reset_index(drop=True)
 
 
 def compare_with_human(
@@ -177,6 +196,7 @@ def compare_with_human(
     *,
     threshold: int = 85,
     uncertain_is_positive: bool = True,
+    count_unmatched_ai: bool = True,
 ) -> tuple[dict[str, Any], pd.DataFrame]:
     """Match titles one-to-one and calculate reference comparison metrics."""
 
@@ -190,7 +210,11 @@ def compare_with_human(
     ai["_normalized_title"] = ai["Title"].map(normalize_title)
     human["_normalized_title"] = human["Title"].map(normalize_title)
     human_decision_column = _decision_column(human)
-    human["_positive"] = True if human_decision_column is None else _positive_decisions(human[human_decision_column])
+    human["_positive"] = (
+        True
+        if human_decision_column is None
+        else _positive_decisions(human[human_decision_column], uncertain_is_positive=uncertain_is_positive)
+    )
     positive_labels = {"include", "uncertain"} if uncertain_is_positive else {"include"}
     ai["_positive"] = _normalized_series(ai["ai_decision"]).isin(positive_labels)
 
@@ -217,7 +241,10 @@ def compare_with_human(
                 "human_title": human_title,
                 "human_positive": human_positive,
                 "match_score": score,
-                "match_status": "matched" if human_index is not None else "AI record unmatched",
+                "match_status": (
+                    "matched" if human_index is not None
+                    else ("AI record unmatched" if count_unmatched_ai else "Not human-reviewed in workflow")
+                ),
             }
         )
 
@@ -227,7 +254,10 @@ def compare_with_human(
     fp_matched = int(((matched["ai_positive"] == True) & (matched["human_positive"] == False)).sum())  # noqa: E712
     fn_matched = int(((matched["ai_positive"] == False) & (matched["human_positive"] == True)).sum())  # noqa: E712
     tn = int(((matched["ai_positive"] == False) & (matched["human_positive"] == False)).sum())  # noqa: E712
-    unmatched_ai_positive = int(((comparison["human_index"].isna()) & comparison["ai_positive"]).sum())
+    unmatched_ai_positive = (
+        int(((comparison["human_index"].isna()) & comparison["ai_positive"]).sum())
+        if count_unmatched_ai else 0
+    )
     unmatched_human_indices = list(available)
     unmatched_human_positive = int(human.loc[unmatched_human_indices, "_positive"].sum()) if unmatched_human_indices else 0
     fp = fp_matched + unmatched_ai_positive
@@ -268,6 +298,7 @@ def compare_with_human(
         "precision": precision,
         "f1_score": f1,
         "specificity": specificity,
+        "unmatched_ai_counted_as_negative": count_unmatched_ai,
     }
     return metrics, comparison
 

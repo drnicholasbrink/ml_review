@@ -25,6 +25,7 @@ The human-review follow-up exercised focus and list modes, title/abstract and fu
 | Evaluation | Funnel, Sankey, confidence, criterion, broad exclusion categories, t-SNE, human-reference metrics, and downloadable mismatches were checked. Specific exclusion rationales remain in the screening audit. |
 | Extraction | Final full-text decisions feed a resumable Structured Outputs schema. Per-record PDFs are uploaded safely and used when present; abstract fallbacks are explicit; changing a source invalidates only its resumable configuration and stale project extraction references. |
 | Background tasks | PubMed fetch, embeddings, title/abstract screening, full-text screening, and extraction run in a serial process-local worker with durable status, live progress polling, safe failures, restart recovery, and project-level write exclusion. |
+| Human reference | Evaluation can use explicit human decisions recorded in the staged workflow or a separately uploaded included-records CSV; workflow metrics exclude records without a human decision. |
 | Handoff | A ZIP assembles protocol inputs, abstract/full-text decision audit, evaluation, and extraction artifacts without credentials, embeddings, or uploaded copyrighted PDFs. |
 | Runtime | Local-only port 5055 binding, required Compose secret, CSRF, security headers, local Plotly delivery, readiness check, and serialized filesystem writes define the supported deployment boundary. |
 

@@ -17,7 +17,13 @@ from ..services.full_text_service import (
     save_full_text_review,
     screen_full_text_csv,
 )
-from ..services.project_service import invalidate_extraction, load_manifest, project_dir, save_manifest
+from ..services.project_service import (
+    invalidate_evaluation,
+    invalidate_extraction,
+    load_manifest,
+    project_dir,
+    save_manifest,
+)
 from ..services.screening_service import (
     EXCLUSION_CATEGORY_LABELS,
     apply_human_reviews,
@@ -322,6 +328,7 @@ def screening(project_id: str):
                 files["human_screening_decisions"] = "human_screening_decisions.csv"
                 files["human_screening_reviewed_results"] = "human_screening_reviewed_results.csv"
                 _refresh_review_state(path, manifest, reviewed)
+                invalidate_evaluation(manifest)
                 invalidate_extraction(manifest)
                 save_manifest(path, manifest)
                 flash("Title and abstract decision saved." if decision else "Title and abstract decision cleared.")
@@ -355,6 +362,7 @@ def screening(project_id: str):
                 abstract = _load_abstract_results(path, manifest)
                 if abstract is not None:
                     _refresh_review_state(path, manifest, abstract)
+                invalidate_evaluation(manifest)
                 invalidate_extraction(manifest)
                 save_manifest(path, manifest)
                 decision = request.form.get("full_text_decision", "")
@@ -535,6 +543,7 @@ def screening(project_id: str):
                     ):
                         updated_manifest.pop(key, None)
                     invalidate_extraction(updated_manifest)
+                    invalidate_evaluation(updated_manifest)
                     updated_manifest["screening_rows"] = len(df)
                     updated_manifest["screening_decision_counts"] = df["ai_decision"].value_counts().to_dict()
                     updated_manifest["screening_truncated_rows"] = int(df["ai_input_truncated"].fillna(False).sum())

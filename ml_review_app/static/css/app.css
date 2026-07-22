@@ -315,6 +315,18 @@ th { color: #3a3a3c; font-size: .76rem; font-weight: 650; letter-spacing: .01em;
 .candidate-abstract { border-top: 1px solid #e2e8f0; padding-top: .75rem; }
 .candidate-abstract p { max-height: 16rem; overflow-y: auto; }
 .evaluation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.human-reference-section { margin-top: 1.25rem; }
+.human-reference-section h2 { margin: 0 0 .35rem; }
+.reference-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; }
+.reference-option { display: flex; min-width: 0; flex-direction: column; padding: 1rem; border: 1px solid var(--line); border-radius: 14px; background: #f7f7f9; }
+.reference-option.selected { border-color: rgba(0,113,227,.3); background: #f4f9ff; box-shadow: 0 0 0 3px rgba(0,113,227,.07); }
+.reference-option > p { min-height: 3.9em; margin: .8rem 0 1rem; color: var(--muted); font-size: .84rem; }
+.reference-option-heading { display: flex; align-items: center; gap: .7rem; }
+.reference-option-heading h3, .reference-option-heading p { margin: 0; }
+.reference-option-heading p { margin-top: .1rem; color: var(--muted); font-size: .75rem; }
+.reference-option-icon { display: inline-grid; flex: 0 0 auto; place-items: center; width: 2.1rem; height: 2.1rem; border-radius: 10px; color: var(--blue); background: #eaf3ff; }
+.compact-reference-form { margin-top: auto; }
+.compact-reference-form button { justify-self: start; }
 .chart-card { min-width: 0; }
 .chart-card h2 { margin-bottom: .25rem; }
 .chart-wide { grid-column: 1 / -1; }
@@ -365,6 +377,7 @@ input[type="checkbox"], input[type="radio"] { min-height: 0; accent-color: var(-
   .full-text-review-fields { grid-template-columns: minmax(0, 1fr); }
   .review-record-header { align-items: flex-start; }
   .evaluation-grid { grid-template-columns: 1fr; }
+  .reference-options { grid-template-columns: 1fr; }
   .atlas-launch-card { grid-template-columns: minmax(0, 1fr); }
   .atlas-layout .workflow-sidebar { overflow: hidden; }
   .atlas-layout .workflow-sidebar-heading { padding: .85rem 1rem; }

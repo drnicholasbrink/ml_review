@@ -139,10 +139,17 @@ def invalidate_outputs(manifest: dict[str, Any], stage: str) -> None:
             "full_text_screening_decision_counts",
         ):
             manifest.pop(key, None)
-        for key in ("human_evaluation_metrics", "human_evaluation_comparison"):
-            files.pop(key, None)
-        manifest.pop("human_evaluation", None)
+        invalidate_evaluation(manifest)
         invalidate_extraction(manifest)
+
+
+def invalidate_evaluation(manifest: dict[str, Any]) -> None:
+    """Clear comparison results when AI or explicit human decisions change."""
+
+    files = manifest.setdefault("files", {})
+    for key in ("human_evaluation_metrics", "human_evaluation_comparison"):
+        files.pop(key, None)
+    manifest.pop("human_evaluation", None)
 
 
 def invalidate_extraction(manifest: dict[str, Any]) -> None:

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}Evaluation · ML Review{% endblock %}
 {% block content %}
 <h1>{{ manifest.name }} · Screening evaluation</h1>
@@ -29,24 +30,36 @@
   {% endif %}
 </section>
 
-<section class="card stack">
-  <h2>Compare with human screening</h2>
-  <p class="page-intro">Upload a CSV containing <code>Title</code>. If it also contains a decision/status column, specificity and true negatives are calculated; otherwise every uploaded row is treated as an included-study reference list.</p>
-  <form method="post" enctype="multipart/form-data" class="stack">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label>Human-screening CSV <input type="file" name="human_screening_csv" accept=".csv,text/csv" required></label>
-    <div class="form-inline">
-      <label>Fuzzy title threshold <input type="number" name="threshold" min="0" max="100" value="{{ metrics.match_threshold if metrics else 85 }}"></label>
-      <label class="checkbox-label"><input type="checkbox" name="uncertain_is_positive" {% if not metrics or metrics.uncertain_is_positive %}checked{% endif %}> Treat uncertain as retained for human review</label>
-    </div>
-    <button type="submit">Run human comparison</button>
-  </form>
+<section class="card stack human-reference-section">
+  <div><p class="eyebrow">Human reference</p><h2>Choose how to evaluate the AI screen</h2><p class="page-intro">Use decisions made inside this review, or compare with a separate CSV containing the included records from another screening workflow.</p></div>
+  <div class="reference-options">
+    <article class="reference-option{% if metrics and metrics.reference_source == 'workflow' %} selected{% endif %}">
+      <div class="reference-option-heading"><span class="reference-option-icon">{{ icon('check') }}</span><div><h3>Use workflow decisions</h3><p>{{ workflow_reference_count }} explicit human decision{{ '' if workflow_reference_count == 1 else 's' }} available</p></div></div>
+      <p>Uses only decisions entered by a human reviewer during title/abstract or full-text screening. AI-accepted and unreviewed records are excluded from these metrics.</p>
+      <form method="post" class="stack compact-reference-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="reference_source" value="workflow">
+        <label>Fuzzy title threshold <input type="number" name="threshold" min="0" max="100" value="{{ metrics.match_threshold if metrics else 85 }}"></label>
+        <label class="checkbox-label"><input type="checkbox" name="uncertain_is_positive" {% if not metrics or metrics.uncertain_is_positive %}checked{% endif %}> Treat uncertain as retained</label>
+        <button type="submit" {% if not workflow_reference_count %}disabled{% endif %}>{{ icon('activity') }}<span>Evaluate workflow decisions</span></button>
+      </form>
+    </article>
+    <article class="reference-option{% if metrics and metrics.reference_source == 'upload' %} selected{% endif %}">
+      <div class="reference-option-heading"><span class="reference-option-icon">{{ icon('upload') }}</span><div><h3>Upload included-records CSV</h3><p>Independent human reference</p></div></div>
+      <p>Upload a CSV containing <code>Title</code>. Every row is treated as included unless the file also supplies a decision or status column.</p>
+      <form method="post" enctype="multipart/form-data" class="stack compact-reference-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="reference_source" value="upload">
+        <label>Included-records CSV <input type="file" name="human_screening_csv" accept=".csv,text/csv" required></label>
+        <label>Fuzzy title threshold <input type="number" name="threshold" min="0" max="100" value="{{ metrics.match_threshold if metrics else 85 }}"></label>
+        <label class="checkbox-label"><input type="checkbox" name="uncertain_is_positive" {% if not metrics or metrics.uncertain_is_positive %}checked{% endif %}> Treat uncertain as retained</label>
+        <button type="submit">{{ icon('upload') }}<span>Evaluate uploaded records</span></button>
+      </form>
+    </article>
+  </div>
 </section>
 
 {% if metrics %}
 <section class="card">
-  <h2>Human-reference metrics</h2>
-  <p class="page-intro">Reference type: {{ metrics.human_file_type }} · {{ metrics.matched_records }} matched titles · {{ '%0.1f'|format(metrics.match_coverage * 100) }}% coverage.</p>
+  <div class="section-heading"><div><h2>Human-reference metrics</h2><p class="page-intro">{{ metrics.reference_label or ('Uploaded ' ~ metrics.human_file_type) }} · {{ metrics.matched_records }} matched titles · {{ '%0.1f'|format(metrics.match_coverage * 100) }}% coverage.</p>{% if metrics.reference_source == 'workflow' %}<p class="muted">Metrics cover the {{ metrics.workflow_reviewed_records }} records with explicit human decisions; unreviewed workflow records are not counted as negatives.</p>{% endif %}</div><span class="status-pill available">{{ 'Workflow decisions' if metrics.reference_source == 'workflow' else 'Uploaded CSV' }}</span></div>
   <div class="summary-cards">
     <div class="summary-card"><strong>{{ '%0.1f'|format(metrics.sensitivity * 100) ~ '%' if metrics.sensitivity is not none else 'N/A' }}</strong><span>Sensitivity</span></div>
     <div class="summary-card"><strong>{{ '%0.1f'|format(metrics.precision * 100) ~ '%' if metrics.precision is not none else 'N/A' }}</strong><span>Precision</span></div>

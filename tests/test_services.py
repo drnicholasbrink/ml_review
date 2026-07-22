@@ -9,7 +9,11 @@ from werkzeug.datastructures import FileStorage
 from ml_review_app.services.clustering_service import build_cluster_search, cluster_csv, parse_cluster_keywords
 from ml_review_app.services.deduplication_service import deduplicate_records, normalize_text
 from ml_review_app.services.embedding_service import MAX_EMBEDDING_TEXT_LENGTH, add_embeddings
-from ml_review_app.services.evaluation_service import build_screening_evaluation, compare_with_human
+from ml_review_app.services.evaluation_service import (
+    build_screening_evaluation,
+    compare_with_human,
+    workflow_human_reference,
+)
 from ml_review_app.services.extraction_service import (
     DataExtraction,
     EffectEstimate,
@@ -787,6 +791,36 @@ def test_screening_evaluation_and_human_comparison():
     assert metrics["false_positives"] == 1
     assert metrics["true_negatives"] == 1
     assert len(comparison) == 3
+
+
+def test_workflow_human_reference_uses_only_explicit_human_decisions():
+    screened = pd.DataFrame(
+        {
+            "Title": ["Human abstract review", "Human full-text review", "AI accepted only"],
+            "ai_decision": ["exclude", "include", "include"],
+            "human_decision": ["include", "", ""],
+            "full_text_decision": ["", "uncertain", ""],
+            "abstract_review_status": ["human_reviewed", "ai_accepted", "ai_accepted"],
+        }
+    )
+    reference = workflow_human_reference(screened)
+    assert reference.to_dict(orient="records") == [
+        {"Title": "Human abstract review", "human_decision": "include"},
+        {"Title": "Human full-text review", "human_decision": "uncertain"},
+    ]
+
+    metrics, comparison = compare_with_human(
+        screened,
+        reference,
+        uncertain_is_positive=True,
+        count_unmatched_ai=False,
+    )
+    assert metrics["matched_records"] == 2
+    assert metrics["false_positives"] == 0
+    assert metrics["unmatched_ai_counted_as_negative"] is False
+    assert comparison.loc[comparison["human_index"].isna(), "match_status"].tolist() == [
+        "Not human-reviewed in workflow"
+    ]
 
 
 def test_screening_evaluation_aggregates_specific_and_legacy_exclusion_reasons():

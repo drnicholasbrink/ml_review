@@ -937,12 +937,28 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
     assert evaluation.status_code == 200
     assert b"Screening funnel" in evaluation.data
     assert b'id="criteria-chart"' in evaluation.data
+    assert b"Use workflow decisions" in evaluation.data
+    assert b"1 explicit human decision available" in evaluation.data
+    workflow_evaluation = client.post(
+        f"/projects/{project_id}/evaluation",
+        data={
+            "reference_source": "workflow",
+            "threshold": "85",
+            "uncertain_is_positive": "on",
+        },
+    )
+    assert workflow_evaluation.status_code == 302
+    workflow_metrics = load_manifest(project_path)["human_evaluation"]
+    assert workflow_metrics["reference_source"] == "workflow"
+    assert workflow_metrics["workflow_reviewed_records"] == 1
+    assert workflow_metrics["unmatched_ai_counted_as_negative"] is False
     human_reference = pd.DataFrame(
         {"Title": screened["Title"], "status": ["include"] + ["exclude"] * (len(screened) - 1)}
     ).to_csv(index=False).encode()
     human_evaluation = client.post(
         f"/projects/{project_id}/evaluation",
         data={
+            "reference_source": "upload",
             "human_screening_csv": (BytesIO(human_reference), "human-screening.csv"),
             "threshold": "85",
             "uncertain_is_positive": "on",
@@ -950,6 +966,7 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
         content_type="multipart/form-data",
     )
     assert human_evaluation.status_code == 302
+    assert load_manifest(project_path)["human_evaluation"]["reference_source"] == "upload"
     evaluation_page = client.get(f"/projects/{project_id}/evaluation")
     assert b"Human-reference metrics" in evaluation_page.data
     assert b"Download comparison CSV" in evaluation_page.data

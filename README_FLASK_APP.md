@@ -45,7 +45,7 @@ No Node.js frontend build is required. Docker installs the exact tested Python s
 - Select clusters and run resumable OpenAI Structured Outputs screening with one controlled broad exclusion category and a concise record-specific rationale for every excluded record.
 - Review records one at a time or in a searchable card list, with visible abstracts, keyboard-assisted decisions, direct PubMed/DOI links, and independent filters for review status, final decision, and AI decision. A filtered bulk action can record that the current AI decisions were accepted without fabricating human decisions.
 - Move eligible records into a clearly optional full-text stage, upload or replace a project-scoped PDF from each record card, and either continue directly to extraction or run resumable PDF-backed AI full-text screening. AI and human decisions remain separate; human overrides win and disagreements are filterable. Human full-text exclusions require both a controlled broad category and a concise record-specific rationale.
-- Explore locally served Plotly funnel, Sankey, confidence, criterion, broad exclusion-category, and t-SNE evaluation views. Legacy reason-only results are normalized into the same broad categories for evaluation.
+- Explore locally served Plotly funnel, Sankey, confidence, criterion, broad exclusion-category, and t-SNE evaluation views. Evaluate against explicit human decisions recorded in the review workflow or upload a separate included-records CSV; legacy reason-only results are normalized into the same broad categories.
 - Optionally compare AI screening with a human-reference CSV using one-to-one fuzzy title matching and downloadable metrics/mismatches.
 - Run resumable structured extraction on a bounded test sample before the full included set. Each record uses its uploaded full-text PDF when available and an explicitly labelled abstract fallback otherwise, then exports nested JSON, study characteristics, effect estimates, and an extraction summary.
 - Download individual artifacts or a publication handoff ZIP containing the protocol inputs, abstract/full-text decision audit, evaluation, and extraction outputs. Embeddings, credentials, and copyrighted source PDFs are excluded from the bundle.
@@ -74,6 +74,6 @@ The bundled background worker is intentionally process-local and sized for the s
 - Record and freeze the inclusion/exclusion criteria before the final screening run.
 - Validate the chosen model and prompt behavior on a human-reviewed sample.
 - Resolve title-and-abstract eligibility. If the optional full-text stage is used, inspect AI/human disagreements and record a broad category plus specific rationale for every human full-text exclusion.
-- Compare against an independent human reference when one is available; inspect fuzzy-match mismatches.
+- Compare against explicit workflow human decisions or an independent included-records CSV; inspect fuzzy-match mismatches and reference coverage.
 - Upload available full texts, confirm every extraction output identifies its source as PDF or abstract fallback, and validate every field and effect estimate manually.
 - Download the publication bundle and retain the application commit hash alongside it.
