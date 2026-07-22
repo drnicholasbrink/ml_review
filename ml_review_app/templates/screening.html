@@ -1,72 +1,116 @@
 {% extends "base.html" %}
 {% from "_review_components.html" import source_links, full_text_controls with context %}
+{% from "_icons.html" import icon %}
 {% block title %}Screening · ML Review{% endblock %}
+{% macro filter_fields(pagination) %}
+<input type="hidden" name="review_filter" value="{{ pagination.review_filter }}">
+<input type="hidden" name="decision_filter" value="{{ pagination.decision_filter }}">
+<input type="hidden" name="ai_filter" value="{{ pagination.ai_filter }}">
+<input type="hidden" name="q" value="{{ pagination.q }}">
+<input type="hidden" name="page" value="{{ pagination.page }}">
+{% endmacro %}
+{% macro decision_source_label(source) -%}
+  {{- 'Human full-text override' if source == 'human_full_text'
+      else 'Full-text AI accepted' if source == 'full_text_ai_auto_reviewed'
+      else 'Full-text AI' if source == 'full_text_ai'
+      else 'Human abstract override' if source == 'human'
+      else 'Abstract AI accepted' if source == 'ai_auto_reviewed'
+      else 'Title & abstract AI' -}}
+{%- endmacro %}
 {% block content %}
 <div class="page-heading reviewer-page-heading">
   <div>
-    <p class="eyebrow">Human review workspace</p>
+    <p class="eyebrow">Screening workspace</p>
     <h1>{{ manifest.name }} · Screening</h1>
-    <p class="page-intro">Review records in a focused one-at-a-time workflow or scan them in a compact list. Human decisions remain separate from the AI audit trail.</p>
+    <p class="page-intro">Move from title and abstract review into an optional full-text stage. AI and human decisions remain visibly separate; a human decision always determines the final result when they disagree.</p>
   </div>
-  {% if manifest.files.human_screening_reviewed_results %}
-  <a class="button secondary" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='human_screening_reviewed_results.csv') }}">Export abstract decisions</a>
-  {% endif %}
+  {% if manifest.files.human_screening_reviewed_results %}<a class="button secondary" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='human_screening_reviewed_results.csv') }}">{{ icon('download') }}<span>Abstract decisions</span></a>{% endif %}
 </div>
 {% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
 {% if manifest.screening_truncated_rows %}<p class="notice">{{ manifest.screening_truncated_rows }} record{{ '' if manifest.screening_truncated_rows == 1 else 's' }} exceeded the AI input allowance. The complete stored abstract remains visible to reviewers.</p>{% endif %}
-<p class="notice">AI decisions are decision support only. Human reviewers should resolve all uncertain and low-confidence records, validate a sample of the remainder, and document full-text exclusion reasons.</p>
+<p class="notice">AI decisions are decision support only. “Accept AI” records that the AI result was reviewed without creating a human decision. Validate the model on a sample and manually resolve uncertain, low-confidence, and disagreement records.</p>
 
 {% if rows is not none %}
 <section class="review-workspace">
   <nav class="stage-tabs" aria-label="Screening stage">
     <a class="stage-tab{% if stage == 'abstract' %} active{% endif %}" href="{{ url_for('screening.screening', project_id=manifest.project_id, stage='abstract', view=pagination.view, review_filter='pending') }}">
-      <span>1</span><strong>Title & abstract</strong>
-      <small>{{ stage_stats.abstract.reviewed }} reviewed · {{ stage_stats.abstract.pending }} remaining</small>
+      <span>1</span><strong>Title & abstract</strong><small>{{ stage_stats.abstract.reviewed }} reviewed · {{ stage_stats.abstract.pending }} remaining</small>
     </a>
     <a class="stage-tab{% if stage == 'full_text' %} active{% endif %}" href="{{ url_for('screening.screening', project_id=manifest.project_id, stage='full_text', view=pagination.view, review_filter='pending') }}">
-      <span>2</span><strong>Full text</strong>
-      <small>{{ stage_stats.full_text.reviewed }} reviewed · {{ stage_stats.full_text.pending }} remaining</small>
+      <span>2</span><strong>Full text <em>Optional</em></strong><small>{{ stage_stats.full_text.reviewed }} reviewed · {{ stage_stats.full_text.pending }} remaining</small>
     </a>
   </nav>
 
+  <div class="stage-next-action">
+    {% if stage == 'abstract' %}
+      <p><strong>Next:</strong> review eligible full texts, or continue directly to extraction.</p>
+      <div class="form-actions"><a class="button" href="{{ url_for('screening.screening', project_id=manifest.project_id, stage='full_text', view='focus', review_filter='pending') }}"><span>Continue to full text</span>{{ icon('arrow-right') }}</a><a class="button secondary" href="{{ url_for('extraction.extraction', project_id=manifest.project_id) }}"><span>Skip to extraction</span>{{ icon('arrow-right') }}</a></div>
+    {% else %}
+      <p><strong>Optional stage:</strong> upload PDFs and review them manually, run the PDF-backed AI screen, or skip any remaining records.</p>
+      <a class="button" href="{{ url_for('extraction.extraction', project_id=manifest.project_id) }}"><span>Continue to extraction</span>{{ icon('arrow-right') }}</a>
+    {% endif %}
+  </div>
+
   <section class="card review-toolbar">
     <div class="review-progress-block">
-      <div class="review-progress-label"><strong>{{ 'Full-text review' if stage == 'full_text' else 'Title and abstract review' }}</strong><span>{{ stage_stats[stage].reviewed }} of {{ stage_stats[stage].total }} reviewed</span></div>
+      <div class="review-progress-label"><strong>{{ 'Full-text review (optional)' if stage == 'full_text' else 'Title and abstract review' }}</strong><span>{{ stage_stats[stage].reviewed }} of {{ stage_stats[stage].total }} reviewed</span></div>
       <progress max="{{ stage_stats[stage].total or 1 }}" value="{{ stage_stats[stage].reviewed }}">{{ stage_stats[stage].reviewed }} of {{ stage_stats[stage].total }}</progress>
-      {% if stage == 'abstract' and stage_stats.abstract.priority %}<small>{{ stage_stats.abstract.priority }} AI-priority record{{ '' if stage_stats.abstract.priority == 1 else 's' }} still require attention.</small>{% endif %}
-      {% if stage == 'full_text' %}<small>{{ stage_stats.full_text.with_pdf }} of {{ stage_stats.full_text.total }} eligible records have an uploaded PDF.</small>{% endif %}
+      <small>{{ stage_stats[stage].human }} human · {{ stage_stats[stage].auto }} AI accepted · {{ stage_stats[stage].pending }} pending{% if stage == 'full_text' %} · {{ stage_stats.full_text.with_pdf }} PDFs · {{ stage_stats.full_text.ai_screened }} AI screened{% endif %}</small>
     </div>
     <div class="view-toggle" aria-label="Review layout">
-      <a class="{{ 'active' if pagination.view == 'focus' }}" href="{{ url_for('screening.screening', project_id=manifest.project_id, stage=stage, view='focus', review_filter=pagination.review_filter, q=pagination.q) }}">Focus</a>
-      <a class="{{ 'active' if pagination.view == 'list' }}" href="{{ url_for('screening.screening', project_id=manifest.project_id, stage=stage, view='list', review_filter=pagination.review_filter, q=pagination.q) }}">List</a>
+      <a class="{{ 'active' if pagination.view == 'focus' }}" href="{{ url_for('screening.screening', project_id=manifest.project_id, stage=stage, view='focus', review_filter=pagination.review_filter, decision_filter=pagination.decision_filter, ai_filter=pagination.ai_filter, q=pagination.q) }}">{{ icon('panel-top') }}<span>Focus</span></a>
+      <a class="{{ 'active' if pagination.view == 'list' }}" href="{{ url_for('screening.screening', project_id=manifest.project_id, stage=stage, view='list', review_filter=pagination.review_filter, decision_filter=pagination.decision_filter, ai_filter=pagination.ai_filter, q=pagination.q) }}">{{ icon('layout-list') }}<span>List</span></a>
     </div>
     <form method="get" class="review-filter-form">
       <input type="hidden" name="stage" value="{{ stage }}"><input type="hidden" name="view" value="{{ pagination.view }}">
       <label>Find records <input type="search" name="q" value="{{ pagination.q }}" placeholder="Title, author, DOI, PMID, keyword…"></label>
-      <label>Show
+      <label>Review status
         <select name="review_filter">
-          <option value="all" {% if pagination.review_filter == 'all' %}selected{% endif %}>All eligible records</option>
-          <option value="pending" {% if pagination.review_filter == 'pending' %}selected{% endif %}>Not yet reviewed</option>
-          {% if stage == 'abstract' %}<option value="priority" {% if pagination.review_filter == 'priority' %}selected{% endif %}>AI priority</option>{% endif %}
-          <option value="reviewed" {% if pagination.review_filter == 'reviewed' %}selected{% endif %}>Human reviewed</option>
-          <option value="include" {% if pagination.review_filter == 'include' %}selected{% endif %}>Included</option>
-          <option value="exclude" {% if pagination.review_filter == 'exclude' %}selected{% endif %}>Excluded</option>
-          <option value="uncertain" {% if pagination.review_filter == 'uncertain' %}selected{% endif %}>Uncertain</option>
+          <option value="all" {% if pagination.review_filter == 'all' %}selected{% endif %}>All eligible</option>
+          <option value="pending" {% if pagination.review_filter == 'pending' %}selected{% endif %}>Pending review</option>
+          <option value="priority" {% if pagination.review_filter == 'priority' %}selected{% endif %}>AI uncertain / low confidence</option>
+          <option value="human_reviewed" {% if pagination.review_filter == 'human_reviewed' %}selected{% endif %}>Human reviewed</option>
+          <option value="auto_reviewed" {% if pagination.review_filter == 'auto_reviewed' %}selected{% endif %}>AI accepted</option>
+          <option value="disagreements" {% if pagination.review_filter == 'disagreements' %}selected{% endif %}>AI / human disagreements</option>
         </select>
       </label>
-      <button type="submit" class="compact">Apply</button>
+      <label>Final decision
+        <select name="decision_filter"><option value="any">Any</option>{% for value in ['include','exclude','uncertain'] %}<option value="{{ value }}" {% if pagination.decision_filter == value %}selected{% endif %}>{{ value | title }}</option>{% endfor %}</select>
+      </label>
+      <label>{{ 'Full-text AI' if stage == 'full_text' else 'Abstract AI' }}
+        <select name="ai_filter"><option value="any">Any</option>{% for value in ['include','exclude','uncertain'] %}<option value="{{ value }}" {% if pagination.ai_filter == value %}selected{% endif %}>{{ value | title }}</option>{% endfor %}</select>
+      </label>
+      <button type="submit" class="compact">{{ icon('search') }}<span>Apply filters</span></button>
     </form>
+    {% if pagination.auto_reviewable_count %}
+    <form method="post" class="bulk-review-form" data-confirm="Accept the current AI decision for {{ pagination.auto_reviewable_count }} matching record{{ 's' if pagination.auto_reviewable_count != 1 else '' }}? This records AI acceptance, not a human decision.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="bulk_auto_review"><input type="hidden" name="stage" value="{{ stage }}"><input type="hidden" name="view" value="{{ pagination.view }}">{{ filter_fields(pagination) }}
+      <div><strong>Bulk review the current filtered set</strong><small>Human decisions are never overwritten.</small></div>
+      <button type="submit" class="secondary compact">{{ icon('check') }}<span>Accept AI for {{ pagination.auto_reviewable_count }} matching</span></button>
+    </form>
+    {% endif %}
   </section>
+
+  {% if stage == 'full_text' %}
+  <details class="card stack full-text-ai-settings" {% if not manifest.files.ai_full_text_screening_results %}open{% endif %}>
+    <summary><strong>Run or rerun AI full-text screening</strong></summary>
+    <p class="page-intro">Only eligible records with an uploaded PDF are sent. Existing human full-text decisions remain separate and always override the AI output.</p>
+    <form method="post" class="stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="full_text_ai_screen"><input type="hidden" name="stage" value="full_text"><input type="hidden" name="view" value="{{ pagination.view }}">{{ filter_fields(pagination) }}
+      <label><span class="label-with-help">OpenAI API key <a class="info-link" href="https://help.openai.com/en/articles/4936850-where-do-i-find-my-openai-api-key" target="_blank" rel="noopener">i</a></span><input type="password" name="openai_api_key" maxlength="512" autocomplete="off" placeholder="{% if fallback_available %}Configured key available{% else %}Enter an OpenAI API key{% endif %}"><small>Used for this task only and never written to the project.</small></label>
+      <div class="form-inline"><label>Model <select name="model"><option value="gpt-5.6-luna" {% if manifest.full_text_ai_model not in ['gpt-5.6-sol','gpt-5.6-terra'] %}selected{% endif %}>gpt-5.6-luna</option><option value="gpt-5.6-terra" {% if manifest.full_text_ai_model == 'gpt-5.6-terra' %}selected{% endif %}>gpt-5.6-terra</option><option value="gpt-5.6-sol" {% if manifest.full_text_ai_model == 'gpt-5.6-sol' %}selected{% endif %}>gpt-5.6-sol</option></select></label><label class="checkbox-label"><input type="checkbox" name="resume" checked> Reuse unchanged PDF decisions</label></div>
+      <button type="submit" {% if not stage_stats.full_text.with_pdf or (monitored_task and monitored_task.state in ['queued','running']) %}disabled{% endif %}>{{ icon('sparkles') }}<span>Run or rerun full-text AI screening</span></button>
+    </form>
+  </details>
+  {% endif %}
 
   {% if pagination.view == 'focus' %}
   <nav class="record-navigation" aria-label="Record navigation">
-    {% if pagination.previous_record %}<a class="button secondary compact" href="{{ url_for('screening.screening', project_id=manifest.project_id, stage=stage, view='focus', review_filter=pagination.review_filter, q=pagination.q, record=pagination.previous_record) }}">← Previous</a>{% else %}<span></span>{% endif %}
+    {% if pagination.previous_record %}<a class="button secondary compact" href="{{ url_for('screening.screening', project_id=manifest.project_id, stage=stage, view='focus', review_filter=pagination.review_filter, decision_filter=pagination.decision_filter, ai_filter=pagination.ai_filter, q=pagination.q, record=pagination.previous_record) }}">{{ icon('chevron-left') }}<span>Previous</span></a>{% else %}<span></span>{% endif %}
     <strong>{{ pagination.position }} of {{ pagination.filtered_count }}</strong>
-    {% if pagination.next_record %}<a class="button secondary compact" href="{{ url_for('screening.screening', project_id=manifest.project_id, stage=stage, view='focus', review_filter=pagination.review_filter, q=pagination.q, record=pagination.next_record) }}">Next →</a>{% else %}<span></span>{% endif %}
+    {% if pagination.next_record %}<a class="button secondary compact" href="{{ url_for('screening.screening', project_id=manifest.project_id, stage=stage, view='focus', review_filter=pagination.review_filter, decision_filter=pagination.decision_filter, ai_filter=pagination.ai_filter, q=pagination.q, record=pagination.next_record) }}"><span>Next</span>{{ icon('chevron-right') }}</a>{% else %}<span></span>{% endif %}
   </nav>
-  {% else %}
-  <p class="page-intro">Showing {{ pagination.start }}–{{ pagination.end }} of {{ pagination.filtered_count }} matching records.</p>
-  {% endif %}
+  {% else %}<p class="page-intro">Showing {{ pagination.start }}–{{ pagination.end }} of {{ pagination.filtered_count }} matching records.</p>{% endif %}
 
   <div class="review-records {{ pagination.view }}-view">
   {% for row in rows %}
@@ -74,139 +118,53 @@
       <header class="review-record-header">
         <div>
           <div class="record-status-line">
-            <span class="decision-badge {{ row.final_decision }}">{{ row.final_decision | title }}</span>
-            {% if stage == 'abstract' %}
-              {% if row.human_decision %}<span class="status-pill complete">Human reviewed</span>{% elif row.requires_human_review %}<span class="status-pill attention">AI priority</span>{% else %}<span class="status-pill available">Not reviewed</span>{% endif %}
-            {% else %}
-              {% if row.full_text_decision %}<span class="status-pill complete">Full text reviewed</span>{% else %}<span class="status-pill attention">Decision pending</span>{% endif %}
-            {% endif %}
+            <span class="final-decision-label">Final</span><span class="decision-badge {{ row.final_decision }}">{{ row.final_decision | title }}</span><span class="status-pill available">{{ decision_source_label(row.final_decision_source) }}</span>
+            {% if (stage == 'abstract' and row.abstract_ai_human_disagreement) or (stage == 'full_text' and row.full_text_ai_human_disagreement) %}<span class="status-pill attention">AI and human disagree</span>{% endif %}
+            {% if stage == 'abstract' and row.abstract_review_status == 'ai_accepted' and not row.human_decision %}<span class="status-pill complete">AI accepted</span>{% elif stage == 'abstract' and row.human_decision %}<span class="status-pill complete">Human reviewed</span>{% elif stage == 'full_text' and row.full_text_review_status == 'ai_accepted' and not row.full_text_decision %}<span class="status-pill complete">AI accepted</span>{% elif stage == 'full_text' and row.full_text_decision %}<span class="status-pill complete">Human reviewed</span>{% else %}<span class="status-pill attention">Review pending</span>{% endif %}
           </div>
           <h2>{{ row.Title or 'Untitled record' }}</h2>
-          <p class="record-citation">
-            {% if row.Authors %}{{ row.Authors }}{% endif %}
-            {% if row.Journal %}<span>{{ row.Journal }}</span>{% endif %}
-            {% if row.Date or row.Year %}<span>{{ row.Date or row.Year }}</span>{% endif %}
-            {% if row.PMID %}<span>PMID {{ row.PMID }}</span>{% elif row.RecordID %}<span>ID {{ row.RecordID }}</span>{% endif %}
-          </p>
-        </div>
-        {{ source_links(row) }}
+          <p class="record-citation">{% if row.Authors %}{{ row.Authors }}{% endif %}{% if row.Journal %}<span>{{ row.Journal }}</span>{% endif %}{% if row.Date or row.Year %}<span>{{ row.Date or row.Year }}</span>{% endif %}{% if row.PMID %}<span>PMID {{ row.PMID }}</span>{% elif row.RecordID %}<span>ID {{ row.RecordID }}</span>{% endif %}</p>
+        </div>{{ source_links(row) }}
       </header>
 
       <div class="review-record-body">
-        <section class="abstract-panel">
-          <div class="section-heading"><h3>Abstract</h3>{% if row.ai_input_truncated %}<span class="status-pill blocked">AI used excerpt</span>{% endif %}</div>
-          {% if pagination.view == 'list' %}
-          <details><summary>Read abstract</summary><p>{{ row.Abstract or 'No abstract supplied.' }}</p></details>
-          {% else %}<p>{{ row.Abstract or 'No abstract supplied.' }}</p>{% endif %}
-        </section>
-
+        <section class="abstract-panel"><div class="section-heading"><h3>Abstract</h3>{% if row.ai_input_truncated %}<span class="status-pill blocked">AI used excerpt</span>{% endif %}</div>{% if pagination.view == 'list' %}<details><summary>Read abstract</summary><p>{{ row.Abstract or 'No abstract supplied.' }}</p></details>{% else %}<p>{{ row.Abstract or 'No abstract supplied.' }}</p>{% endif %}</section>
         {% if stage == 'abstract' %}
-        <aside class="ai-guidance-panel">
-          <div class="section-heading"><h3>AI suggestion</h3><span class="decision-badge {{ row.ai_decision }}">{{ row.ai_decision | title }} · {{ row.ai_confidence | title }}</span></div>
-          <p>{{ row.ai_reasoning or 'No AI rationale supplied.' }}</p>
-          <div class="criteria-instruments" aria-label="AI criterion checks">
-            <span class="{{ 'match' if row.ai_population_match else 'miss' }}">{{ '✓' if row.ai_population_match else '—' }} Population</span>
-            <span class="{{ 'match' if row.ai_exposure_match else 'miss' }}">{{ '✓' if row.ai_exposure_match else '—' }} Exposure</span>
-            <span class="{{ 'match' if row.ai_outcome_match else 'miss' }}">{{ '✓' if row.ai_outcome_match else '—' }} Outcome</span>
-            <span class="{{ 'match' if row.ai_study_design_appropriate else 'miss' }}">{{ '✓' if row.ai_study_design_appropriate else '—' }} Design</span>
-          </div>
-          {% if row.ai_exclusion_reason %}<small><strong>{{ row.ai_exclusion_category | replace('_', ' ') | title }}:</strong> {{ row.ai_exclusion_reason }}</small>{% endif %}
-        </aside>
-        {% else %}
-          {{ full_text_controls(row, manifest, pagination) }}
-        {% endif %}
+        <aside class="ai-guidance-panel"><div class="section-heading"><h3>AI title & abstract decision</h3><span class="decision-badge {{ row.ai_decision }}">{{ row.ai_decision | title }} · {{ row.ai_confidence | title }}</span></div><p>{{ row.ai_reasoning or 'No AI rationale supplied.' }}</p><div class="criteria-instruments" aria-label="AI criterion checks"><span class="{{ 'match' if row.ai_population_match else 'miss' }}">{{ '✓' if row.ai_population_match else '—' }} Population</span><span class="{{ 'match' if row.ai_exposure_match else 'miss' }}">{{ '✓' if row.ai_exposure_match else '—' }} Exposure</span><span class="{{ 'match' if row.ai_outcome_match else 'miss' }}">{{ '✓' if row.ai_outcome_match else '—' }} Outcome</span><span class="{{ 'match' if row.ai_study_design_appropriate else 'miss' }}">{{ '✓' if row.ai_study_design_appropriate else '—' }} Design</span></div>{% if row.ai_exclusion_reason %}<small><strong>{{ row.ai_exclusion_category | replace('_',' ') | title }}:</strong> {{ row.ai_exclusion_reason }}</small>{% endif %}</aside>
+        {% else %}{{ full_text_controls(row, manifest, pagination) }}{% endif %}
       </div>
 
-      {% if stage == 'abstract' %}
-      <form method="post" class="review-decision-form" data-review-form>
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="abstract_review">
-        <input type="hidden" name="record_key" value="{{ row.record_key }}"><input type="hidden" name="stage" value="{{ stage }}"><input type="hidden" name="view" value="{{ pagination.view }}">
-        <input type="hidden" name="review_filter" value="{{ pagination.review_filter }}"><input type="hidden" name="q" value="{{ pagination.q }}"><input type="hidden" name="page" value="{{ pagination.page }}"><input type="hidden" name="next_record" value="{{ pagination.next_record }}">
-        <label>Reviewer note <textarea name="human_note" maxlength="2000" rows="2" placeholder="Optional audit note…">{{ row.human_note }}</textarea></label>
-        <div class="decision-actions" role="group" aria-label="Title and abstract decision for {{ row.Title }}">
-          <button name="human_decision" value="include" class="decision-action include{% if row.human_decision == 'include' %} selected{% endif %}">Include <kbd>I</kbd></button>
-          <button name="human_decision" value="exclude" class="decision-action exclude{% if row.human_decision == 'exclude' %} selected{% endif %}">Exclude <kbd>E</kbd></button>
-          <button name="human_decision" value="uncertain" class="decision-action uncertain{% if row.human_decision == 'uncertain' %} selected{% endif %}">Maybe <kbd>M</kbd></button>
-          {% if row.human_decision %}<button name="human_decision" value="" class="link-button">Clear decision</button>{% endif %}
-        </div>
-        {% if row.human_reviewed_at %}<small>Last reviewed {{ row.human_reviewed_at }}</small>{% endif %}
-      </form>
-      {% else %}
-      <form method="post" class="review-decision-form full-text-decision-form" data-review-form>
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="full_text_review">
-        <input type="hidden" name="record_key" value="{{ row.record_key }}"><input type="hidden" name="stage" value="{{ stage }}"><input type="hidden" name="view" value="{{ pagination.view }}">
-        <input type="hidden" name="review_filter" value="{{ pagination.review_filter }}"><input type="hidden" name="q" value="{{ pagination.q }}"><input type="hidden" name="page" value="{{ pagination.page }}"><input type="hidden" name="next_record" value="{{ pagination.next_record }}">
-        <div class="full-text-review-fields">
-          <label>Exclusion category
-            <select name="exclusion_category">
-              <option value="">Choose when excluding…</option>
-              {% for value, label in exclusion_categories.items() %}<option value="{{ value }}" {% if row.full_text_exclusion_category == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-            </select>
-          </label>
-          <label>Specific exclusion reason <input name="exclusion_reason" maxlength="400" value="{{ row.full_text_exclusion_reason }}" placeholder="Required when excluding"></label>
-          <label>Reviewer note <textarea name="full_text_note" maxlength="2000" rows="2" placeholder="Optional audit note…">{{ row.full_text_note }}</textarea></label>
-        </div>
-        <div class="decision-actions" role="group" aria-label="Full-text decision for {{ row.Title }}">
-          <button name="full_text_decision" value="include" class="decision-action include{% if row.full_text_decision == 'include' %} selected{% endif %}">Include <kbd>I</kbd></button>
-          <button name="full_text_decision" value="exclude" class="decision-action exclude{% if row.full_text_decision == 'exclude' %} selected{% endif %}">Exclude <kbd>E</kbd></button>
-          <button name="full_text_decision" value="uncertain" class="decision-action uncertain{% if row.full_text_decision == 'uncertain' %} selected{% endif %}">Maybe <kbd>M</kbd></button>
-          {% if row.full_text_decision %}<button name="full_text_decision" value="" class="link-button">Clear decision</button>{% endif %}
-        </div>
-        {% if row.full_text_reviewed_at %}<small>Last reviewed {{ row.full_text_reviewed_at }}</small>{% endif %}
-      </form>
+      {% if stage == 'full_text' %}
+      <section class="full-text-ai-decision {{ 'available' if row.full_text_ai_available else 'empty' }}">
+        {% if row.full_text_ai_available %}<div class="section-heading"><div><p class="eyebrow">AI decision</p><h3>Full-text AI assessment</h3></div><span class="decision-badge {{ row.full_text_ai_decision }}">{{ row.full_text_ai_decision | title }} · {{ row.full_text_ai_confidence | title }}</span></div><p>{{ row.full_text_ai_reasoning }}</p>{% if row.full_text_ai_exclusion_reason %}<small><strong>{{ row.full_text_ai_exclusion_category | replace('_',' ') | title }}:</strong> {{ row.full_text_ai_exclusion_reason }}</small>{% endif %}
+        {% else %}<div><p class="eyebrow">AI decision</p><h3>No full-text AI decision</h3><p>Upload this record’s PDF, then run the optional full-text AI screen above. You can still make a human decision without using AI.</p></div>{% endif %}
+      </section>
       {% endif %}
+
+      <form method="post" class="review-decision-form{% if stage == 'full_text' %} full-text-decision-form{% endif %}" data-review-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="{{ 'full_text_review' if stage == 'full_text' else 'abstract_review' }}"><input type="hidden" name="record_key" value="{{ row.record_key }}"><input type="hidden" name="stage" value="{{ stage }}"><input type="hidden" name="view" value="{{ pagination.view }}">{{ filter_fields(pagination) }}<input type="hidden" name="next_record" value="{{ pagination.next_record }}">
+        <div class="human-decision-heading"><div><p class="eyebrow">Human decision</p><h3>{{ 'Human full-text decision' if stage == 'full_text' else 'Human title & abstract decision' }}</h3></div>{% set human_value = row.full_text_decision if stage == 'full_text' else row.human_decision %}{% if human_value %}<span class="decision-badge {{ human_value }}">{{ human_value | title }}</span>{% else %}<span class="status-pill blocked">Not recorded</span>{% endif %}</div>
+        {% if stage == 'full_text' %}<div class="full-text-review-fields"><label>Exclusion category <select name="exclusion_category"><option value="">Choose when excluding…</option>{% for value,label in exclusion_categories.items() %}<option value="{{ value }}" {% if row.full_text_exclusion_category == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label><label>Specific exclusion reason <input name="exclusion_reason" maxlength="400" value="{{ row.full_text_exclusion_reason }}" placeholder="Required when excluding"></label><label>Reviewer note <textarea name="full_text_note" maxlength="2000" rows="2" placeholder="Optional audit note…">{{ row.full_text_note }}</textarea></label></div>{% else %}<label>Reviewer note <textarea name="human_note" maxlength="2000" rows="2" placeholder="Optional audit note…">{{ row.human_note }}</textarea></label>{% endif %}
+        <div class="decision-actions" role="group" aria-label="Human decision for {{ row.Title }}"><button name="{{ 'full_text_decision' if stage == 'full_text' else 'human_decision' }}" value="include" class="decision-action include{% if human_value == 'include' %} selected{% endif %}">{{ icon('check') }}<span>Include</span><kbd>I</kbd></button><button name="{{ 'full_text_decision' if stage == 'full_text' else 'human_decision' }}" value="exclude" class="decision-action exclude{% if human_value == 'exclude' %} selected{% endif %}"><span>Exclude</span><kbd>E</kbd></button><button name="{{ 'full_text_decision' if stage == 'full_text' else 'human_decision' }}" value="uncertain" class="decision-action uncertain{% if human_value == 'uncertain' %} selected{% endif %}"><span>Maybe</span><kbd>M</kbd></button>{% if human_value %}<button name="{{ 'full_text_decision' if stage == 'full_text' else 'human_decision' }}" value="" class="link-button">Clear human decision</button>{% endif %}</div>
+        {% if (stage == 'abstract' and row.human_reviewed_at) or (stage == 'full_text' and row.full_text_reviewed_at) %}<small>Last human review: {{ row.full_text_reviewed_at if stage == 'full_text' else row.human_reviewed_at }}</small>{% endif %}
+      </form>
     </article>
-  {% else %}
-    <section class="card empty-state"><h2>No matching records</h2><p>Adjust the filters or move to the other screening stage.</p></section>
-  {% endfor %}
+  {% else %}<section class="card empty-state"><h2>No matching records</h2><p>Adjust the filters or move to the other screening stage.</p></section>{% endfor %}
   </div>
 
-  {% if pagination.view == 'list' and pagination.pages > 1 %}<nav class="pagination" aria-label="Screening pages">
-    {% if pagination.page > 1 %}<a class="button secondary" href="{{ url_for('screening.screening', project_id=manifest.project_id, stage=stage, view='list', page=pagination.page-1, q=pagination.q, review_filter=pagination.review_filter) }}">Previous</a>{% endif %}
-    <span>Page {{ pagination.page }} of {{ pagination.pages }}</span>
-    {% if pagination.page < pagination.pages %}<a class="button secondary" href="{{ url_for('screening.screening', project_id=manifest.project_id, stage=stage, view='list', page=pagination.page+1, q=pagination.q, review_filter=pagination.review_filter) }}">Next</a>{% endif %}
-  </nav>{% endif %}
+  {% if pagination.view == 'list' and pagination.pages > 1 %}<nav class="pagination" aria-label="Screening pages">{% if pagination.page > 1 %}<a class="button secondary" href="{{ url_for('screening.screening', project_id=manifest.project_id, stage=stage, view='list', page=pagination.page-1, q=pagination.q, review_filter=pagination.review_filter, decision_filter=pagination.decision_filter, ai_filter=pagination.ai_filter) }}">Previous</a>{% endif %}<span>Page {{ pagination.page }} of {{ pagination.pages }}</span>{% if pagination.page < pagination.pages %}<a class="button secondary" href="{{ url_for('screening.screening', project_id=manifest.project_id, stage=stage, view='list', page=pagination.page+1, q=pagination.q, review_filter=pagination.review_filter, decision_filter=pagination.decision_filter, ai_filter=pagination.ai_filter) }}">Next</a>{% endif %}</nav>{% endif %}
 </section>
 {% endif %}
 
 <details class="card stack workflow-settings" {% if rows is none %}open{% endif %}>
-  <summary><strong>AI screening settings and exports</strong></summary>
-  <p class="page-intro">Run or resume structured AI screening before human review. Changing the model or criteria creates a new screening configuration.</p>
-  <details><summary>View inclusion and exclusion criteria</summary><pre>{{ criteria }}</pre></details>
-  <form method="post" class="stack">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="screen">
-    <label><span class="label-with-help">OpenAI API key <a class="info-link" href="https://help.openai.com/en/articles/4936850-where-do-i-find-my-openai-api-key" target="_blank" rel="noopener" aria-label="How to create an OpenAI API key">i</a></span>
-      <input type="password" name="openai_api_key" maxlength="512" autocomplete="off" placeholder="{% if fallback_available %}Configured key available{% else %}Enter an OpenAI API key{% endif %}"><small>Used for this request only and never written to the project.</small></label>
-    <label>Screening model <select name="model"><option value="gpt-5.6-luna" {% if manifest.screening_model not in ['gpt-5.6-sol', 'gpt-5.6-terra'] %}selected{% endif %}>gpt-5.6-luna</option><option value="gpt-5.6-terra" {% if manifest.screening_model == 'gpt-5.6-terra' %}selected{% endif %}>gpt-5.6-terra</option><option value="gpt-5.6-sol" {% if manifest.screening_model == 'gpt-5.6-sol' %}selected{% endif %}>gpt-5.6-sol</option></select></label>
-    <label class="checkbox-label"><input type="checkbox" name="resume" checked> Resume matching records</label>
-    <button type="submit" {% if not source_ready or not criteria or (monitored_task and monitored_task.state in ['queued', 'running']) %}disabled{% endif %}>Run AI screening in background</button>
-  </form>
-  <div class="form-actions">
-    {% if manifest.files.ai_screening_full_results %}<a class="button secondary" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='ai_screening_full_results.csv') }}">AI screening CSV</a>{% endif %}
-    {% if manifest.files.full_text_screening_results %}<a class="button secondary" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='full_text_screening_results.csv') }}">Final full-text decisions CSV</a>{% endif %}
-    <a class="button secondary" href="{{ url_for('evaluation.evaluation', project_id=manifest.project_id) }}">Evaluation dashboard</a>
-  </div>
+  <summary><strong>Title and abstract AI settings and exports</strong></summary><p class="page-intro">Run or resume the initial structured AI screen. A new run clears prior review statuses because its AI decisions may differ.</p><details><summary>View inclusion and exclusion criteria</summary><pre>{{ criteria }}</pre></details>
+  <form method="post" class="stack"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="screen"><label><span class="label-with-help">OpenAI API key <a class="info-link" href="https://help.openai.com/en/articles/4936850-where-do-i-find-my-openai-api-key" target="_blank" rel="noopener">i</a></span><input type="password" name="openai_api_key" maxlength="512" autocomplete="off" placeholder="{% if fallback_available %}Configured key available{% else %}Enter an OpenAI API key{% endif %}"><small>Used for this request only and never written to the project.</small></label><label>Screening model <select name="model"><option value="gpt-5.6-luna" {% if manifest.screening_model not in ['gpt-5.6-sol','gpt-5.6-terra'] %}selected{% endif %}>gpt-5.6-luna</option><option value="gpt-5.6-terra" {% if manifest.screening_model == 'gpt-5.6-terra' %}selected{% endif %}>gpt-5.6-terra</option><option value="gpt-5.6-sol" {% if manifest.screening_model == 'gpt-5.6-sol' %}selected{% endif %}>gpt-5.6-sol</option></select></label><label class="checkbox-label"><input type="checkbox" name="resume" checked> Resume matching records</label><button type="submit" {% if not source_ready or not criteria or (monitored_task and monitored_task.state in ['queued','running']) %}disabled{% endif %}>Run title and abstract AI screening</button></form>
+  <div class="form-actions">{% if manifest.files.ai_screening_full_results %}<a class="button secondary" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='ai_screening_full_results.csv') }}">Abstract AI CSV</a>{% endif %}{% if manifest.files.ai_full_text_screening_results %}<a class="button secondary" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='ai_full_text_screening_results.csv') }}">Full-text AI CSV</a>{% endif %}{% if manifest.files.full_text_screening_results %}<a class="button secondary" href="{{ url_for('exports.download', project_id=manifest.project_id, filename='full_text_screening_results.csv') }}">Final staged decisions CSV</a>{% endif %}<a class="button secondary" href="{{ url_for('evaluation.evaluation', project_id=manifest.project_id) }}">Evaluation dashboard</a></div>
 </details>
 
 <script>
-document.querySelectorAll('.full-text-decision-form').forEach(form => {
-  form.addEventListener('submit', event => {
-    const category=form.querySelector('[name="exclusion_category"]');
-    const reason=form.querySelector('[name="exclusion_reason"]');
-    const excluding=Boolean(event.submitter && event.submitter.value === 'exclude');
-    category.required=excluding; reason.required=excluding;
-    if (excluding && !form.checkValidity()) { event.preventDefault(); form.reportValidity(); }
-  });
-});
-document.addEventListener('keydown', event => {
-  if (event.metaKey || event.ctrlKey || event.altKey || ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) return;
-  const form = document.querySelector('.focus-view [data-review-form]');
-  if (!form) return;
-  const key = event.key.toLowerCase();
-  const value = key === 'i' ? 'include' : key === 'e' ? 'exclude' : key === 'm' ? 'uncertain' : '';
-  if (!value) return;
-  const button = form.querySelector(`button[value="${value}"]`);
-  if (button) { event.preventDefault(); button.click(); }
-});
+document.querySelectorAll('[data-confirm]').forEach(form=>form.addEventListener('submit',event=>{if(!window.confirm(form.dataset.confirm))event.preventDefault();}));
+document.querySelectorAll('.full-text-decision-form').forEach(form=>{form.addEventListener('submit',event=>{const category=form.querySelector('[name="exclusion_category"]');const reason=form.querySelector('[name="exclusion_reason"]');const excluding=Boolean(event.submitter&&event.submitter.value==='exclude');category.required=excluding;reason.required=excluding;if(excluding&&!form.checkValidity()){event.preventDefault();form.reportValidity();}});});
+document.addEventListener('keydown',event=>{if(event.metaKey||event.ctrlKey||event.altKey||['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName))return;const form=document.querySelector('.focus-view [data-review-form]');if(!form)return;const key=event.key.toLowerCase();const value=key==='i'?'include':key==='e'?'exclude':key==='m'?'uncertain':'';if(!value)return;const button=form.querySelector(`button[value="${value}"]`);if(button){event.preventDefault();button.click();}});
 </script>
 {% endblock %}

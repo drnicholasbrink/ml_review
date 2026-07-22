@@ -385,7 +385,7 @@ def test_extraction_route_runs_a_resumable_test_and_exposes_exports(tmp_path: Pa
         assert audit["extraction_model"] == "gpt-5.6-luna"
 
 
-def test_human_review_workspace_links_full_text_upload_and_final_decision_audit(tmp_path: Path):
+def test_human_review_workspace_links_full_text_upload_and_final_decision_audit(tmp_path: Path, monkeypatch):
     app = make_app(tmp_path)
     client = app.test_client()
     project_id, setup_url = create_project(client)
@@ -415,7 +415,7 @@ def test_human_review_workspace_links_full_text_upload_and_final_decision_audit(
 
     focus_page = client.get(f"/projects/{project_id}/screening?stage=abstract&view=focus")
     assert focus_page.status_code == 200
-    assert b"Human review workspace" in focus_page.data
+    assert b"Screening workspace" in focus_page.data
     assert b"https://pubmed.ncbi.nlm.nih.gov/12345678/" in focus_page.data
     assert b"https://doi.org/10.1000/example" in focus_page.data
     assert b"Focus" in focus_page.data and b"List" in focus_page.data
@@ -423,8 +423,23 @@ def test_human_review_workspace_links_full_text_upload_and_final_decision_audit(
     assert b"Read abstract" in list_page.data
 
     record_key = focus_page.data.split(b'name="record_key" value="', 1)[1].split(b'"', 1)[0].decode()
+    accepted_abstract = client.post(
+        f"/projects/{project_id}/screening",
+        data={
+            "action": "bulk_auto_review", "stage": "abstract", "view": "focus",
+            "review_filter": "all", "decision_filter": "any", "ai_filter": "any",
+        },
+        follow_redirects=True,
+    )
+    assert b"Accepted the AI decision for 1 matching record" in accepted_abstract.data
+    abstract_reviewed = pd.read_csv(project_path / "human_screening_reviewed_results.csv")
+    assert abstract_reviewed.loc[0, "final_decision_source"] == "ai_auto_reviewed"
+    assert pd.isna(abstract_reviewed.loc[0, "human_decision"])
+
     full_text_page = client.get(f"/projects/{project_id}/screening?stage=full_text&view=focus")
     assert b"Upload PDF" in full_text_page.data
+    assert b"Optional stage" in full_text_page.data
+    assert b"Continue to extraction" in full_text_page.data
     invalid = client.post(
         f"/projects/{project_id}/full-text/{record_key}/upload",
         data={"full_text_pdf": (BytesIO(b"plain text"), "source.txt")},
@@ -451,6 +466,51 @@ def test_human_review_workspace_links_full_text_upload_and_final_decision_audit(
     assert inline_pdf.mimetype == "application/pdf"
     assert inline_pdf.headers["Content-Disposition"].startswith("inline;")
 
+    def fake_full_text_screen(input_csv, _criteria, output_csv, **_kwargs):
+        result = pd.read_csv(input_csv)
+        result["full_text_ai_decision"] = "exclude"
+        result["full_text_ai_confidence"] = "high"
+        result["full_text_ai_exclusion_category"] = "study_design"
+        result["full_text_ai_exclusion_reason"] = "Protocol without completed results."
+        result["full_text_ai_reasoning"] = "The uploaded article reports planned methods only."
+        result["full_text_ai_population_match"] = True
+        result["full_text_ai_exposure_match"] = True
+        result["full_text_ai_outcome_match"] = True
+        result["full_text_ai_study_design_appropriate"] = False
+        result["full_text_ai_model"] = "gpt-5.6-luna"
+        result["full_text_ai_config_hash"] = "stable-config"
+        result["full_text_ai_screened_at"] = "2026-07-22T00:00:00+00:00"
+        result["full_text_ai_filename"] = f"{record_key}.pdf"
+        result.to_csv(output_csv, index=False)
+        return result, 1
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr("ml_review_app.blueprints.screening.screen_full_text_csv", fake_full_text_screen)
+    ai_run = client.post(
+        f"/projects/{project_id}/screening",
+        data={
+            "action": "full_text_ai_screen", "stage": "full_text", "view": "focus",
+            "model": "gpt-5.6-luna", "resume": "on",
+        },
+    )
+    assert ai_run.status_code == 302
+    assert "stage=full_text" in ai_run.headers["Location"] and "task=" in ai_run.headers["Location"]
+    ai_page = client.get(ai_run.headers["Location"])
+    assert b"Full-text AI assessment" in ai_page.data
+    assert b"Protocol without completed results" in ai_page.data
+
+    accepted_full_text = client.post(
+        f"/projects/{project_id}/screening",
+        data={
+            "action": "bulk_auto_review", "stage": "full_text", "view": "focus",
+            "review_filter": "all", "decision_filter": "any", "ai_filter": "any",
+        },
+        follow_redirects=True,
+    )
+    assert b"Accepted the AI decision for 1 matching record" in accepted_full_text.data
+    auto_final = pd.read_csv(project_path / "full_text_screening_results.csv")
+    assert auto_final.loc[0, "final_decision_source"] == "full_text_ai_auto_reviewed"
+
     decided = client.post(
         f"/projects/{project_id}/screening",
         data={
@@ -467,6 +527,13 @@ def test_human_review_workspace_links_full_text_upload_and_final_decision_audit(
     final = pd.read_csv(project_path / "full_text_screening_results.csv")
     assert final.loc[0, "abstract_final_decision"] == "include"
     assert final.loc[0, "final_decision_source"] == "human_full_text"
+    assert final.loc[0, "full_text_ai_decision"] == "exclude"
+    assert bool(final.loc[0, "full_text_ai_human_disagreement"])
+    disagreement_page = client.get(
+        f"/projects/{project_id}/screening?stage=full_text&view=focus&review_filter=disagreements"
+    )
+    assert b"AI and human disagree" in disagreement_page.data
+    assert b"Human full-text override" in disagreement_page.data
 
     extraction = client.get(f"/projects/{project_id}/extraction")
     assert extraction.status_code == 200
@@ -837,7 +904,7 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
     assert response.status_code == 302
     assert "/screening?task=" in response.headers["Location"]
     completed_screening = client.get(response.headers["Location"])
-    assert b"Human review workspace" in completed_screening.data
+    assert b"Screening workspace" in completed_screening.data
     assert b"Title & abstract" in completed_screening.data
     assert b'class="review-record-card"' in completed_screening.data
     assert b"<pre>[{" not in completed_screening.data
@@ -849,7 +916,7 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
 
     screening_page = client.get(f"/projects/{project_id}/screening?review_filter=needs_review")
     assert screening_page.status_code == 200
-    assert b"AI priority" in screening_page.data
+    assert b"AI uncertain / low confidence" in screening_page.data
     record_key = screening_page.data.split(b'name="record_key" value="', 1)[1].split(b'"', 1)[0].decode()
     adjudicated = client.post(
         f"/projects/{project_id}/screening",

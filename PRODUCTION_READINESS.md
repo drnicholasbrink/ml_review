@@ -21,17 +21,17 @@ The human-review follow-up exercised focus and list modes, title/abstract and fu
 | Embeddings | Model, truncation, dimensions, and progress provenance are visible; runs resume safely. |
 | Evidence Atlas | Python precomputes deterministic UMAP coordinates and cosine neighbors in a slim Parquet artifact. The interface opens Apple's official Embedding Atlas with the data URL and column settings preloaded, and offers a download-and-drop fallback for network-restricted browsers. |
 | Clustering | WCSS-first root/child branches, deterministic settings, source details, DOI/PubMed links, and selection history were exercised. |
-| Screening | Focus and list review modes expose full abstracts, DOI/PubMed links, one-click decisions, progress, search, filters, and separate title/abstract and full-text audit trails. Full-text exclusions require a broad category plus specific rationale. |
+| Screening | Focus/list modes expose full abstracts, DOI/PubMed links, one-click decisions, progress, compound filters, and separate AI/human/final decision layers. Filtered “AI accepted” actions never create human decisions. The optional full-text stage supports project PDFs, resumable PDF-backed AI screening, explicit disagreement handling, and human overrides. |
 | Evaluation | Funnel, Sankey, confidence, criterion, broad exclusion categories, t-SNE, human-reference metrics, and downloadable mismatches were checked. Specific exclusion rationales remain in the screening audit. |
 | Extraction | Final full-text decisions feed a resumable Structured Outputs schema. Per-record PDFs are uploaded safely and used when present; abstract fallbacks are explicit; changing a source invalidates only its resumable configuration and stale project extraction references. |
-| Background tasks | PubMed fetch, embeddings, screening, and extraction run in a serial process-local worker with durable status, live progress polling, safe failures, restart recovery, and project-level write exclusion. |
+| Background tasks | PubMed fetch, embeddings, title/abstract screening, full-text screening, and extraction run in a serial process-local worker with durable status, live progress polling, safe failures, restart recovery, and project-level write exclusion. |
 | Handoff | A ZIP assembles protocol inputs, abstract/full-text decision audit, evaluation, and extraction artifacts without credentials, embeddings, or uploaded copyrighted PDFs. |
 | Runtime | Local-only port 5055 binding, required Compose secret, CSRF, security headers, local Plotly delivery, readiness check, and serialized filesystem writes define the supported deployment boundary. |
 
 ## Scientific safeguards
 
 - AI screening is decision support, not a final clinical or scientific judgment.
-- All uncertain and low-confidence screens require human review; a sample of other decisions should also be checked.
+- All uncertain and low-confidence screens and every AI/human disagreement require human review; a sample of other decisions should also be checked. “AI accepted” remains distinguishable from a human judgment throughout the audit.
 - PDF-assisted and abstract-fallback extraction are calibration and pre-population aids. Every field and effect estimate must be verified manually against the source document before analysis or publication.
 - Human-reference comparisons depend on fuzzy title matching; ambiguous or unmatched records require manual inspection.
 - Retain the publication bundle, protocol version, model names, run date, prompt/schema changes, and application commit hash with the review record.

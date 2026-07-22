@@ -1,7 +1,8 @@
+{% from "_icons.html" import icon %}
 {% macro source_links(row) %}
 <div class="record-source-links" aria-label="External record links">
-  {% if row.pubmed_url %}<a class="button secondary compact" href="{{ row.pubmed_url }}" target="_blank" rel="noopener">PubMed ↗</a>{% endif %}
-  {% if row.doi_url %}<a class="button secondary compact" href="{{ row.doi_url }}" target="_blank" rel="noopener">DOI ↗</a>{% endif %}
+  {% if row.pubmed_url %}<a class="button secondary compact" href="{{ row.pubmed_url }}" target="_blank" rel="noopener"><span>PubMed</span>{{ icon('external-link') }}</a>{% endif %}
+  {% if row.doi_url %}<a class="button secondary compact" href="{{ row.doi_url }}" target="_blank" rel="noopener"><span>DOI</span>{{ icon('external-link') }}</a>{% endif %}
   {% if not row.pubmed_url and not row.doi_url %}<span class="muted">No DOI or PubMed link available</span>{% endif %}
 </div>
 {% endmacro %}
@@ -11,6 +12,8 @@
 <input type="hidden" name="view" value="{{ pagination.view if pagination else 'focus' }}">
 <input type="hidden" name="record" value="{{ row.record_key }}">
 <input type="hidden" name="review_filter" value="{{ pagination.review_filter if pagination else 'all' }}">
+<input type="hidden" name="decision_filter" value="{{ pagination.decision_filter if pagination else 'any' }}">
+<input type="hidden" name="ai_filter" value="{{ pagination.ai_filter if pagination else 'any' }}">
 <input type="hidden" name="q" value="{{ pagination.q if pagination else '' }}">
 <input type="hidden" name="page" value="{{ pagination.page if pagination else 1 }}">
 {% endmacro %}
@@ -28,8 +31,8 @@
     </div>
     {% if row.full_text %}
     <div class="record-source-links">
-      <a class="button compact" href="{{ url_for('full_texts.view', project_id=manifest.project_id, record_key=row.record_key) }}" target="_blank" rel="noopener">Open PDF ↗</a>
-      <a class="button secondary compact" href="{{ url_for('full_texts.view', project_id=manifest.project_id, record_key=row.record_key, download=1) }}">Download</a>
+      <a class="button compact" href="{{ url_for('full_texts.view', project_id=manifest.project_id, record_key=row.record_key) }}" target="_blank" rel="noopener"><span>Open PDF</span>{{ icon('external-link') }}</a>
+      <a class="button secondary compact" href="{{ url_for('full_texts.view', project_id=manifest.project_id, record_key=row.record_key, download=1) }}">{{ icon('download') }}<span>Download</span></a>
     </div>
     {% endif %}
   </div>
@@ -37,13 +40,13 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     {{ return_fields(pagination, row, return_to) }}
     <label class="file-picker"><span>{{ 'Replace PDF' if row.full_text else 'Upload PDF' }}</span><input type="file" name="full_text_pdf" accept="application/pdf,.pdf" required></label>
-    <button type="submit" class="compact">{{ 'Replace' if row.full_text else 'Upload' }}</button>
+    <button type="submit" class="compact">{{ icon('upload') }}<span>{{ 'Replace' if row.full_text else 'Upload' }}</span></button>
   </form>
   {% if row.full_text %}
   <form method="post" action="{{ url_for('full_texts.remove', project_id=manifest.project_id, record_key=row.record_key) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     {{ return_fields(pagination, row, return_to) }}
-    <button type="submit" class="link-button danger-text">Remove PDF</button>
+    <button type="submit" class="link-button danger-text">{{ icon('trash') }}<span>Remove PDF</span></button>
   </form>
   {% endif %}
 </section>

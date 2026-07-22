@@ -120,16 +120,22 @@ def invalidate_outputs(manifest: dict[str, Any], stage: str) -> None:
         for key in (
             "human_screening_decisions",
             "human_screening_reviewed_results",
+            "ai_full_text_screening_results",
             "human_full_text_decisions",
             "full_text_screening_results",
         ):
             files.pop(key, None)
         for key in (
             "human_review_rows",
+            "abstract_auto_review_rows",
             "human_review_pending_rows",
             "final_screening_decision_counts",
             "full_text_review_rows",
+            "full_text_auto_review_rows",
             "full_text_review_pending_rows",
+            "full_text_ai_screening_rows",
+            "full_text_ai_candidate_rows",
+            "full_text_ai_model",
             "full_text_screening_decision_counts",
         ):
             manifest.pop(key, None)

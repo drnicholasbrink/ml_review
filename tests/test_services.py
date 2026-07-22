@@ -22,15 +22,18 @@ from ml_review_app.services.extraction_service import (
 from ml_review_app.services.full_text_service import (
     apply_full_text_reviews,
     full_text_path,
+    mark_full_text_ai_accepted,
     remove_full_text_pdf,
     save_full_text_pdf,
     save_full_text_review,
+    screen_full_text_csv,
 )
 from ml_review_app.services.import_service import build_column_mapping, normalize_records, profile_csv
 from ml_review_app.services.screening_service import (
     MAX_SCREENING_RECORD_LENGTH,
     ScreeningDecision,
     apply_human_reviews,
+    mark_abstract_ai_accepted,
     save_human_review,
     screen_csv,
 )
@@ -67,6 +70,29 @@ def test_human_screening_review_preserves_ai_audit_and_sets_final_decision(tmp_p
     )
     assert cleared.loc[0, "final_decision"] == "uncertain"
     assert cleared.loc[0, "final_decision_source"] == "ai"
+
+
+def test_accepting_abstract_ai_is_a_review_status_not_a_human_decision(tmp_path: Path):
+    screening_path = tmp_path / "screening.csv"
+    reviews_path = tmp_path / "reviews.csv"
+    reviewed_path = tmp_path / "reviewed.csv"
+    screening = pd.DataFrame([
+        {
+            "RecordID": "one", "Title": "Eligible study", "Abstract": "Study abstract.",
+            "ai_decision": "include", "ai_confidence": "high",
+        }
+    ])
+    screening.to_csv(screening_path, index=False)
+    record_key = apply_human_reviews(screening).loc[0, "record_key"]
+    reviewed, accepted = mark_abstract_ai_accepted(
+        screening_path, reviews_path, reviewed_path, record_keys={record_key},
+    )
+    assert accepted == 1
+    assert reviewed.loc[0, "human_decision"] == ""
+    assert reviewed.loc[0, "abstract_review_status"] == "ai_accepted"
+    assert reviewed.loc[0, "final_decision"] == "include"
+    assert reviewed.loc[0, "final_decision_source"] == "ai_auto_reviewed"
+    assert bool(reviewed.loc[0, "abstract_review_complete"])
 
 
 def test_full_text_pdf_storage_and_human_review_preserve_stage_audit(tmp_path: Path):
@@ -141,6 +167,103 @@ def test_full_text_storage_rejects_a_symlinked_document_directory(tmp_path: Path
             valid_record_keys={record_key},
         )
     assert not (outside / f"{record_key}.pdf").exists()
+
+
+def test_pdf_backed_ai_full_text_decision_and_human_override_are_separate(tmp_path: Path):
+    abstract_path = tmp_path / "abstract.csv"
+    ai_path = tmp_path / "full-text-ai.csv"
+    reviews_path = tmp_path / "full-text-reviews.csv"
+    final_path = tmp_path / "final.csv"
+    abstract = apply_human_reviews(pd.DataFrame([
+        {
+            "RecordID": "one", "Title": "Primary study", "Abstract": "Stored abstract.",
+            "ai_decision": "include", "ai_confidence": "high",
+        }
+    ]))
+    abstract.to_csv(abstract_path, index=False)
+    record_key = abstract.loc[0, "record_key"]
+    pdf = tmp_path / "article.pdf"
+    pdf.write_bytes(b"%PDF-1.4\nfull text\n%%EOF")
+    parsed = ScreeningDecision(
+        decision="exclude",
+        confidence="high",
+        exclusion_category="study_design",
+        exclusion_reason="The article is a protocol without results.",
+        reasoning="The full article describes planned methods only.",
+        population_match=True,
+        exposure_match=True,
+        outcome_match=True,
+        study_design_appropriate=False,
+    )
+
+    class FakeResponses:
+        def __init__(self):
+            self.calls = []
+
+        def parse(self, **kwargs):
+            self.calls.append(kwargs)
+            return SimpleNamespace(output_parsed=parsed)
+
+    responses = FakeResponses()
+    ai_result, candidate_count = screen_full_text_csv(
+        abstract_path,
+        "Include completed primary studies.",
+        ai_path,
+        full_text_files={record_key: pdf},
+        api_key="test-key",
+        model="gpt-5.6-luna",
+        client=SimpleNamespace(responses=responses),
+    )
+    assert candidate_count == 1
+    assert ai_result.loc[0, "full_text_ai_decision"] == "exclude"
+    assert responses.calls[0]["input"][0]["content"][1]["type"] == "input_file"
+    resumed, _ = screen_full_text_csv(
+        abstract_path,
+        "Include completed primary studies.",
+        ai_path,
+        full_text_files={record_key: pdf},
+        api_key="test-key",
+        model="gpt-5.6-luna",
+        client=SimpleNamespace(responses=responses),
+    )
+    assert resumed.loc[0, "full_text_ai_decision"] == "exclude"
+    assert len(responses.calls) == 1
+    layered = apply_full_text_reviews(abstract, ai_results_df=ai_result)
+    assert layered.loc[0, "final_decision"] == "exclude"
+    assert layered.loc[0, "final_decision_source"] == "full_text_ai"
+    assert bool(layered.loc[0, "requires_full_text_review"])
+
+    accepted, count = mark_full_text_ai_accepted(
+        abstract_path, reviews_path, final_path, ai_path, record_keys={record_key},
+    )
+    assert count == 1
+    assert accepted.loc[0, "final_decision_source"] == "full_text_ai_auto_reviewed"
+    assert not bool(accepted.loc[0, "requires_full_text_review"])
+    assert not accepted.loc[0, "full_text_decision"]
+
+    changed_ai = ai_result.copy()
+    changed_ai.loc[0, "full_text_ai_config_hash"] = "changed-pdf-or-prompt"
+    stored_reviews = pd.read_csv(reviews_path, dtype=str).fillna("")
+    invalidated_acceptance = apply_full_text_reviews(abstract, stored_reviews, changed_ai)
+    assert invalidated_acceptance.loc[0, "final_decision_source"] == "full_text_ai"
+    assert bool(invalidated_acceptance.loc[0, "requires_full_text_review"])
+
+    human = save_full_text_review(
+        abstract_path,
+        reviews_path,
+        final_path,
+        record_key=record_key,
+        decision="include",
+        exclusion_category="",
+        exclusion_reason="",
+        note="Human reviewer found completed results.",
+        ai_results_csv=ai_path,
+    )
+    assert human.loc[0, "full_text_ai_decision"] == "exclude"
+    assert human.loc[0, "full_text_decision"] == "include"
+    assert human.loc[0, "final_decision"] == "include"
+    assert human.loc[0, "final_decision_source"] == "human_full_text"
+    assert bool(human.loc[0, "full_text_ai_human_disagreement"])
 
 
 def test_extraction_uses_pdf_and_reextracts_when_source_changes(tmp_path: Path):
