@@ -14,7 +14,14 @@ from pydantic import BaseModel, Field, model_validator
 
 MAX_SCREENING_RECORD_LENGTH = 100_000
 SCREENING_SCHEMA_VERSION = 2
-HUMAN_REVIEW_COLUMNS = ["record_key", "human_decision", "human_note", "human_reviewed_at"]
+HUMAN_REVIEW_COLUMNS = [
+    "record_key",
+    "human_decision",
+    "human_note",
+    "human_reviewed_at",
+    "abstract_review_status",
+    "abstract_auto_reviewed_at",
+]
 ExclusionCategory = Literal[
     "population",
     "exposure",
@@ -104,12 +111,19 @@ def apply_human_reviews(screening_df: pd.DataFrame, reviews_df: pd.DataFrame | N
     for column in HUMAN_REVIEW_COLUMNS[1:]:
         result[column] = result["record_key"].map(lambda key: review_lookup.get(key, {}).get(column))
     reviewed = result["human_decision"].fillna("").isin({"include", "exclude", "uncertain"})
+    auto_reviewed = result["abstract_review_status"].fillna("").eq("ai_accepted") & ~reviewed
     result["final_decision"] = result["human_decision"].where(reviewed, result["ai_decision"])
-    result["final_decision_source"] = reviewed.map({True: "human", False: "ai"})
+    result["final_decision_source"] = "ai"
+    result.loc[auto_reviewed, "final_decision_source"] = "ai_auto_reviewed"
+    result.loc[reviewed, "final_decision_source"] = "human"
+    result["abstract_review_complete"] = reviewed | auto_reviewed
+    result["abstract_ai_human_disagreement"] = (
+        reviewed & result["human_decision"].fillna("").ne(result["ai_decision"].fillna(""))
+    )
     result["requires_human_review"] = (
         result["ai_decision"].fillna("").eq("uncertain")
         | result["ai_confidence"].fillna("").eq("low")
-    ) & ~reviewed
+    ) & ~result["abstract_review_complete"]
     return result
 
 
@@ -132,6 +146,7 @@ def save_human_review(
         raise ValueError("The screening record is no longer available")
     if reviews_csv.exists():
         reviews = pd.read_csv(reviews_csv, dtype=str).fillna("")
+        reviews = reviews.reindex(columns=HUMAN_REVIEW_COLUMNS, fill_value="")
     else:
         reviews = pd.DataFrame(columns=HUMAN_REVIEW_COLUMNS)
     reviews = reviews.loc[reviews["record_key"] != record_key].copy()
@@ -141,11 +156,59 @@ def save_human_review(
             "human_decision": decision,
             "human_note": note.strip(),
             "human_reviewed_at": datetime.now(timezone.utc).isoformat(),
+            "abstract_review_status": "human_reviewed",
+            "abstract_auto_reviewed_at": "",
         }
     reviews.to_csv(reviews_csv, index=False)
     reviewed = apply_human_reviews(screening, reviews)
     reviewed.to_csv(reviewed_results_csv, index=False)
     return reviewed
+
+
+def mark_abstract_ai_accepted(
+    screening_csv: Path,
+    reviews_csv: Path,
+    reviewed_results_csv: Path,
+    *,
+    record_keys: set[str],
+) -> tuple[pd.DataFrame, int]:
+    """Mark selected records as reviewed by accepting, not replacing, their AI decisions."""
+
+    screening = pd.read_csv(screening_csv)
+    keyed = apply_human_reviews(screening)
+    available = set(keyed["record_key"])
+    selected = record_keys & available
+    if not selected:
+        raise ValueError("No matching unreviewed records are available to accept")
+    if reviews_csv.exists():
+        reviews = pd.read_csv(reviews_csv, dtype=str).fillna("")
+        reviews = reviews.reindex(columns=HUMAN_REVIEW_COLUMNS, fill_value="")
+    else:
+        reviews = pd.DataFrame(columns=HUMAN_REVIEW_COLUMNS)
+    human_keys = set(
+        reviews.loc[reviews["human_decision"].isin({"include", "exclude", "uncertain"}), "record_key"]
+    )
+    selected -= human_keys
+    if not selected:
+        raise ValueError("All matching records already have human decisions")
+    reviews = reviews.loc[~reviews["record_key"].isin(selected)].copy()
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+    additions = pd.DataFrame([
+        {
+            "record_key": record_key,
+            "human_decision": "",
+            "human_note": "",
+            "human_reviewed_at": "",
+            "abstract_review_status": "ai_accepted",
+            "abstract_auto_reviewed_at": reviewed_at,
+        }
+        for record_key in sorted(selected)
+    ])
+    reviews = pd.concat([reviews, additions], ignore_index=True)
+    reviews.to_csv(reviews_csv, index=False)
+    reviewed = apply_human_reviews(screening, reviews)
+    reviewed.to_csv(reviewed_results_csv, index=False)
+    return reviewed, len(selected)
 
 
 def truncate_screening_record(title: str, abstract: str) -> tuple[str, str, bool, int]:

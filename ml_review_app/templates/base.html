@@ -1,3 +1,4 @@
+{% from "_icons.html" import icon %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -10,11 +11,11 @@
 </head>
 <body>
   <header class="topbar">
-    <a href="{{ url_for('main.index') }}" class="brand">ML Review</a>
-    <nav>
-      {% if manifest %}<a href="{{ url_for('projects.dashboard', project_id=manifest.project_id) }}">Project overview</a>{% endif %}
-      {% if manifest %}<a href="{{ url_for('tasks.tasks', project_id=manifest.project_id) }}">Tasks</a>{% endif %}
-      <a href="{{ url_for('projects.projects_index') }}">Projects</a>
+    <a href="{{ url_for('main.index') }}" class="brand"><span class="brand-mark">{{ icon('activity') }}</span><span>ML Review</span></a>
+    <nav aria-label="Primary navigation">
+      {% if manifest %}<a href="{{ url_for('projects.dashboard', project_id=manifest.project_id) }}">{{ icon('grid') }}<span>Overview</span></a>{% endif %}
+      {% if manifest %}<a href="{{ url_for('tasks.tasks', project_id=manifest.project_id) }}">{{ icon('activity') }}<span>Tasks</span></a>{% endif %}
+      <a href="{{ url_for('projects.projects_index') }}">{{ icon('folder') }}<span>Projects</span></a>
     </nav>
   </header>
   <main class="container{% if workflow_steps %} workflow-layout{% endif %}{% if request.endpoint == 'atlas.atlas' %} atlas-layout{% endif %}">

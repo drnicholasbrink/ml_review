@@ -43,20 +43,20 @@ No Node.js frontend build is required. Docker installs the exact tested Python s
 - Optionally build a reproducible, slim Evidence Atlas artifact with precomputed UMAP coordinates and cosine neighbors, then open it in Apple's official Embedding Atlas with the projection, search text, and neighbors already mapped. A direct Parquet download remains available. Atlas exploration does not change clustering or screening selections.
 - Analyze WCSS before choosing K for every root or child projection, then create reproducible t-SNE/K-Means runs in an immutable branch tree with parent navigation and clickable abstract inspection.
 - Select clusters and run resumable OpenAI Structured Outputs screening with one controlled broad exclusion category and a concise record-specific rationale for every excluded record.
-- Review records one at a time or in a searchable card list, with visible abstracts, keyboard-assisted decisions, and direct PubMed/DOI links. Human title-and-abstract decisions and notes are timestamped and preserve the original AI audit trail.
-- Move eligible records into a distinct full-text stage, upload or replace a project-scoped PDF from each record card, and record a final include, exclude, or uncertain decision. Full-text exclusions require both a controlled broad category and a concise record-specific rationale.
+- Review records one at a time or in a searchable card list, with visible abstracts, keyboard-assisted decisions, direct PubMed/DOI links, and independent filters for review status, final decision, and AI decision. A filtered bulk action can record that the current AI decisions were accepted without fabricating human decisions.
+- Move eligible records into a clearly optional full-text stage, upload or replace a project-scoped PDF from each record card, and either continue directly to extraction or run resumable PDF-backed AI full-text screening. AI and human decisions remain separate; human overrides win and disagreements are filterable. Human full-text exclusions require both a controlled broad category and a concise record-specific rationale.
 - Explore locally served Plotly funnel, Sankey, confidence, criterion, broad exclusion-category, and t-SNE evaluation views. Legacy reason-only results are normalized into the same broad categories for evaluation.
 - Optionally compare AI screening with a human-reference CSV using one-to-one fuzzy title matching and downloadable metrics/mismatches.
 - Run resumable structured extraction on a bounded test sample before the full included set. Each record uses its uploaded full-text PDF when available and an explicitly labelled abstract fallback otherwise, then exports nested JSON, study characteristics, effect estimates, and an extraction summary.
 - Download individual artifacts or a publication handoff ZIP containing the protocol inputs, abstract/full-text decision audit, evaluation, and extraction outputs. Embeddings, credentials, and copyrighted source PDFs are excluded from the bundle.
 
-AI screening and extraction are decision support. Human reviewers must validate prompts and model choices on a sample, resolve the human screening workflow, verify extracted fields against source documents, compare with human screening when available, and record criteria/model/date/prompt changes.
+AI screening and extraction are decision support. “AI accepted” is an audit status, not a human decision. Human reviewers must validate prompts and model choices on a sample, resolve uncertain/low-confidence and disagreement records, verify extracted fields against source documents, compare with human screening when available, and record criteria/model/date/prompt changes.
 
 Full-text uploads must be PDF files no larger than 50 MB. They are stored only inside the owning project's gitignored runtime directory, removed with the project, and deliberately omitted from the publication bundle to avoid redistributing source documents.
 
 ## Background tasks
 
-PubMed fetches, embedding generation, AI screening, and structured extraction run in a serial background worker so the browser request returns immediately. Every project has a **Tasks** view with queued, running, succeeded, and failed states; completed/total counts; a progress bar; safe error guidance; and links back to the relevant workflow step. The current task is also visible while navigating elsewhere in the project.
+PubMed fetches, embedding generation, title/abstract AI screening, full-text AI screening, and structured extraction run in a serial background worker so the browser request returns immediately. Every project has a **Tasks** view with queued, running, succeeded, and failed states; completed/total counts; a progress bar; safe error guidance; and links back to the relevant workflow step. The current task is also visible while navigating elsewhere in the project.
 
 Task status is persisted under the project's runtime directory, while submitted API keys remain in process memory and are never written to task files. Only one task or other write operation may mutate a project at a time. If the app restarts mid-run, the task is marked interrupted and the existing resumable CSV workflow can continue it safely.
 
@@ -73,7 +73,7 @@ The bundled background worker is intentionally process-local and sized for the s
 - Confirm the search query, date range, fetched count, and deduplication report.
 - Record and freeze the inclusion/exclusion criteria before the final screening run.
 - Validate the chosen model and prompt behavior on a human-reviewed sample.
-- Resolve title-and-abstract and full-text eligibility decisions, including a broad category and specific rationale for each full-text exclusion.
+- Resolve title-and-abstract eligibility. If the optional full-text stage is used, inspect AI/human disagreements and record a broad category plus specific rationale for every human full-text exclusion.
 - Compare against an independent human reference when one is available; inspect fuzzy-match mismatches.
 - Upload available full texts, confirm every extraction output identifies its source as PDF or abstract fallback, and validate every field and effect estimate manually.
 - Download the publication bundle and retain the application commit hash alongside it.

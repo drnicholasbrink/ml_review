@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 from flask import Blueprint, abort, current_app, flash, redirect, request, send_file, url_for
 
-from ..services.full_text_service import full_text_path, remove_full_text_pdf, save_full_text_pdf
+from ..services.full_text_service import apply_full_text_reviews, full_text_path, remove_full_text_pdf, save_full_text_pdf
 from ..services.project_service import invalidate_extraction, load_manifest, project_dir, save_manifest
 from ..services.screening_service import apply_human_reviews
 
@@ -29,10 +29,30 @@ def _return_url(project_id: str):
         "view": request.form.get("view", "focus"),
         "record": request.form.get("record", ""),
         "review_filter": request.form.get("review_filter", "all"),
+        "decision_filter": request.form.get("decision_filter", "any"),
+        "ai_filter": request.form.get("ai_filter", "any"),
         "q": request.form.get("q", ""),
         "page": request.form.get("page", "1"),
     }
     return url_for("screening.screening", project_id=project_id, **parameters)
+
+
+def _invalidate_full_text_ai(path, manifest: dict) -> None:
+    """Hide stale PDF-backed AI decisions while preserving human full-text overrides."""
+
+    files = manifest.setdefault("files", {})
+    files.pop("ai_full_text_screening_results", None)
+    for key in ("full_text_ai_screening_rows", "full_text_ai_candidate_rows", "full_text_ai_model"):
+        manifest.pop(key, None)
+    reviews_name = files.get("human_full_text_decisions")
+    if reviews_name and (path / reviews_name).is_file():
+        abstract = _screening_records(path, manifest)
+        reviews = pd.read_csv(path / reviews_name, dtype=str)
+        final = apply_full_text_reviews(abstract, reviews)
+        final.to_csv(path / "full_text_screening_results.csv", index=False)
+        files["full_text_screening_results"] = "full_text_screening_results.csv"
+    else:
+        files.pop("full_text_screening_results", None)
 
 
 @bp.post("/<record_key>/upload")
@@ -50,6 +70,7 @@ def upload(project_id: str, record_key: str):
         )
         manifest.setdefault("full_text_documents", {})[record_key] = metadata
         manifest["full_text_document_count"] = len(manifest["full_text_documents"])
+        _invalidate_full_text_ai(path, manifest)
         invalidate_extraction(manifest)
         save_manifest(path, manifest)
         flash("Full-text PDF saved. Existing extraction outputs were marked stale.")
@@ -66,6 +87,7 @@ def remove(project_id: str, record_key: str):
         remove_full_text_pdf(path, manifest, record_key)
         manifest.setdefault("full_text_documents", {}).pop(record_key, None)
         manifest["full_text_document_count"] = len(manifest["full_text_documents"])
+        _invalidate_full_text_ai(path, manifest)
         invalidate_extraction(manifest)
         save_manifest(path, manifest)
         flash("Full-text PDF removed. Existing extraction outputs were marked stale.")

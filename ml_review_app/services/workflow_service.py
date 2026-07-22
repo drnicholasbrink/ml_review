@@ -38,9 +38,16 @@ def build_workflow_steps(project_path: Path, manifest: dict[str, Any]) -> list[d
         for key in ("selected_records", "labeled_clusters", "deduplicated_records")
     )
     screening_ready = file_ready("ai_screening_full_results")
-    abstract_pending = int(manifest.get("abstract_review_pending_rows", manifest.get("human_review_pending_rows", 0)))
-    full_text_pending = int(manifest.get("full_text_review_pending_rows", 0))
-    screening_attention = screening_ready and (abstract_pending > 0 or full_text_pending > 0)
+    if "abstract_review_pending_rows" in manifest:
+        abstract_pending = int(manifest.get("abstract_review_pending_rows", 0))
+    else:
+        abstract_pending = max(
+            0,
+            int(manifest.get("screening_rows", 0))
+            - int(manifest.get("human_review_rows", 0))
+            - int(manifest.get("abstract_auto_review_rows", 0)),
+        )
+    screening_attention = screening_ready and abstract_pending > 0
     extraction_ready = file_ready("ai_extraction_full_results")
 
     return [

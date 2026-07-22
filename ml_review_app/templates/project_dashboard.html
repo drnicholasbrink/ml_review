@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}{{ manifest.name }} · ML Review{% endblock %}
 {% block content %}
 <div class="page-heading">
@@ -9,8 +10,8 @@
   </div>
   <div class="stack">
     <code>{{ manifest.project_id }}</code>
-    <a class="button secondary" href="{{ url_for('exports.publication_bundle', project_id=manifest.project_id) }}">Download publication bundle</a>
-    <a class="button danger" href="{{ url_for('projects.project_delete_confirmation', project_id=manifest.project_id) }}">Delete project…</a>
+    <a class="button secondary" href="{{ url_for('exports.publication_bundle', project_id=manifest.project_id) }}">{{ icon('download') }}<span>Publication bundle</span></a>
+    <a class="button danger ghost-danger" href="{{ url_for('projects.project_delete_confirmation', project_id=manifest.project_id) }}">{{ icon('trash') }}<span>Delete project…</span></a>
   </div>
 </div>
 
@@ -26,7 +27,7 @@
     <h2>{{ step.title }}</h2>
     <p>{{ step.description }}</p>
     {% if step.enabled %}
-      <a class="button{% if step.complete %} secondary{% endif %}" href="{{ url_for(step.endpoint, project_id=manifest.project_id) }}">{{ 'Review section' if step.complete else 'Open section' }}</a>
+      <a class="button{% if step.complete %} secondary{% endif %}" href="{{ url_for(step.endpoint, project_id=manifest.project_id) }}"><span>{{ 'Review section' if step.complete else 'Open section' }}</span>{{ icon('arrow-right') }}</a>
     {% else %}
       <button type="button" disabled>{{ step.blocked_reason }}</button>
     {% endif %}
