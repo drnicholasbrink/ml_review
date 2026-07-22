@@ -34,6 +34,7 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
     from .blueprints.extraction import bp as extraction_bp
     from .blueprints.exports import bp as exports_bp
     from .blueprints.tasks import bp as tasks_bp
+    from .blueprints.full_texts import bp as full_texts_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(projects_bp)
@@ -47,6 +48,7 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
     app.register_blueprint(extraction_bp)
     app.register_blueprint(exports_bp)
     app.register_blueprint(tasks_bp)
+    app.register_blueprint(full_texts_bp)
 
     @app.before_request
     def block_project_mutations_while_task_runs():

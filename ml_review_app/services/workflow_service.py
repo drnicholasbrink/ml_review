@@ -38,7 +38,9 @@ def build_workflow_steps(project_path: Path, manifest: dict[str, Any]) -> list[d
         for key in ("selected_records", "labeled_clusters", "deduplicated_records")
     )
     screening_ready = file_ready("ai_screening_full_results")
-    screening_attention = screening_ready and int(manifest.get("human_review_pending_rows", 0)) > 0
+    abstract_pending = int(manifest.get("abstract_review_pending_rows", manifest.get("human_review_pending_rows", 0)))
+    full_text_pending = int(manifest.get("full_text_review_pending_rows", 0))
+    screening_attention = screening_ready and (abstract_pending > 0 or full_text_pending > 0)
     extraction_ready = file_ready("ai_extraction_full_results")
 
     return [
@@ -116,7 +118,7 @@ def build_workflow_steps(project_path: Path, manifest: dict[str, Any]) -> list[d
             "id": "screening",
             "number": "6",
             "title": "Screening",
-            "description": "Run and review structured screening decisions.",
+            "description": "Review title, abstract, and full-text eligibility decisions.",
             "endpoint": "screening.screening",
             "enabled": screening_source_ready and criteria_ready,
             "complete": screening_ready and not screening_attention,
@@ -137,7 +139,7 @@ def build_workflow_steps(project_path: Path, manifest: dict[str, Any]) -> list[d
             "id": "extraction",
             "number": "8",
             "title": "Extraction",
-            "description": "Extract and export structured study characteristics and effect estimates.",
+            "description": "Upload full texts, then extract and review structured study data.",
             "endpoint": "extraction.extraction",
             "enabled": screening_ready,
             "complete": extraction_ready,

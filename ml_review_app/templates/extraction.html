@@ -1,26 +1,71 @@
 {% extends "base.html" %}
+{% from "_review_components.html" import source_links, full_text_controls with context %}
 {% block title %}Extraction · ML Review{% endblock %}
 {% block content %}
-<h1>{{ manifest.name }} · Structured extraction</h1>
-<p class="page-intro">Extract publication-oriented study characteristics and effect estimates from included abstracts with resumable OpenAI Structured Outputs.</p>
+<div class="page-heading reviewer-page-heading">
+  <div>
+    <p class="eyebrow">Study data workspace</p>
+    <h1>{{ manifest.name }} · Extraction</h1>
+    <p class="page-intro">Collect full texts, run structured extraction in the background, and inspect the resulting study data before export.</p>
+  </div>
+  <a class="button secondary" href="{{ url_for('screening.screening', project_id=manifest.project_id, stage='full_text', view='focus', review_filter='pending') }}">Return to full-text review</a>
+</div>
 {% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
-<p class="notice">Abstract-only extraction is a starting point, not a publication-ready judgment. Validate a test sample against manual full-text extraction, then review every low-confidence or limited extraction before analysis.</p>
+<p class="notice">Extraction is decision support, not a final scientific judgment. Validate a test sample against manual full-text extraction and review every limited or low-confidence result.</p>
 
-<section class="card stack">
+<section class="card stack extraction-overview">
   <div class="summary-cards">
     <div class="summary-card"><strong>{{ candidate_count }}</strong><span>Eligible records</span></div>
+    <div class="summary-card"><strong>{{ full_text_count }}</strong><span>Full texts ready</span></div>
     <div class="summary-card"><strong>{{ manifest.extraction_rows or 0 }}</strong><span>Extracted records</span></div>
     <div class="summary-card"><strong>{{ manifest.extraction_model or 'Not run' }}</strong><span>Last model</span></div>
-    <div class="summary-card"><strong>{{ 'Human' if manifest.files.human_screening_reviewed_results else 'AI' }}</strong><span>Decision source</span></div>
   </div>
-  <p class="page-intro">Eligibility source: {{ decision_source_label }}. Human overrides take precedence while the original AI decision remains in every extraction row.</p>
+  <p class="page-intro">Eligibility source: <strong>{{ decision_source_label }}</strong>. Each uploaded PDF is used for its record; records without a PDF fall back to the stored abstract and are marked accordingly in the output.</p>
+</section>
+
+{% if source_ready and candidate_rows %}
+<section class="card stack candidate-library">
+  <div class="section-heading">
+    <div>
+      <h2>Eligible source documents</h2>
+      <p class="page-intro">Add or replace a PDF on its record card. Up to 250 eligible records are shown here; extraction still processes the selected run scope.</p>
+    </div>
+    <label class="table-search">Find a study <input id="candidate-search" type="search" placeholder="Title, author, DOI, PMID…"></label>
+  </div>
+  <div id="candidate-grid" class="candidate-grid">
+  {% for row in candidate_rows %}
+    <article class="candidate-card" data-search="{{ [row.Title, row.Authors, row.Journal, row.PMID, row.DOI] | join(' ') | lower }}">
+      <header>
+        <div>
+          <span class="status-pill {{ 'complete' if row.full_text else 'attention' }}">{{ 'PDF ready' if row.full_text else 'Abstract fallback' }}</span>
+          <h3>{{ row.Title or 'Untitled record' }}</h3>
+          <p class="record-citation">
+            {% if row.Authors %}{{ row.Authors }}{% endif %}
+            {% if row.Journal %}<span>{{ row.Journal }}</span>{% endif %}
+            {% if row.Date or row.Year %}<span>{{ row.Date or row.Year }}</span>{% endif %}
+            {% if row.PMID %}<span>PMID {{ row.PMID }}</span>{% elif row.RecordID %}<span>ID {{ row.RecordID }}</span>{% endif %}
+          </p>
+        </div>
+        {{ source_links(row) }}
+      </header>
+      {{ full_text_controls(row, manifest, return_to='extraction') }}
+      <details class="candidate-abstract"><summary>Read stored abstract</summary><p>{{ row.Abstract or 'No abstract supplied.' }}</p></details>
+    </article>
+  {% endfor %}
+  </div>
+  <p id="candidate-count" class="page-intro"></p>
+</section>
+{% endif %}
+
+<details class="card stack extraction-run" {% if source_ready and not manifest.files.ai_extraction_full_results %}open{% endif %}>
+  <summary><strong>Run structured extraction</strong></summary>
   {% if source_ready %}
   <form method="post" class="stack">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>
       <span class="label-with-help">OpenAI API key <a class="info-link" href="https://help.openai.com/en/articles/4936850-where-do-i-find-my-openai-api-key" target="_blank" rel="noopener" aria-label="How to create an OpenAI API key">i</a></span>
       <input type="password" name="openai_api_key" maxlength="512" autocomplete="off" placeholder="{% if fallback_available %}Configured key available{% else %}Enter an OpenAI API key{% endif %}">
-      <small>The entered key is used for this request only and is never written to the project.</small>
+      <small>Used for this request only and never written to the project.</small>
     </label>
     <div class="form-inline">
       <label>Extraction model
@@ -31,19 +76,16 @@
         </select>
       </label>
       <label>Run scope
-        <select name="scope">
-          <option value="test">Test sample first</option>
-          <option value="full">Full eligible set</option>
-        </select>
+        <select name="scope"><option value="test">Test sample first</option><option value="full">Full eligible set</option></select>
       </label>
       <label>Test records <input type="number" name="test_limit" min="1" max="25" value="{{ [candidate_count, 5] | min if candidate_count else 5 }}"></label>
     </div>
-    <label class="checkbox-label"><input type="checkbox" name="include_uncertain" {% if include_uncertain %}checked{% endif %}> Include uncertain screening decisions</label>
-    <label class="checkbox-label"><input type="checkbox" name="resume" checked> Resume records already extracted with this model and schema</label>
-    <button type="submit" {% if monitored_task and monitored_task.state in ['queued', 'running'] %}disabled{% endif %}>Run or resume structured extraction in background</button>
+    <label class="checkbox-label"><input type="checkbox" name="include_uncertain" {% if include_uncertain %}checked{% endif %}> Include records with a final uncertain decision</label>
+    <label class="checkbox-label"><input type="checkbox" name="resume" checked> Resume unchanged records already extracted with this model and schema</label>
+    <button type="submit" {% if monitored_task and monitored_task.state in ['queued', 'running'] %}disabled{% endif %}>Run or resume extraction in background</button>
   </form>
-  {% else %}<p class="page-intro">Run AI screening before starting extraction.</p>{% endif %}
-</section>
+  {% else %}<p class="page-intro">Complete screening before starting extraction.</p>{% endif %}
+</details>
 
 {% if manifest.files.ai_extraction_full_results %}
 <section class="card stack">
@@ -60,20 +102,20 @@
 
 {% if rows %}
 <section class="card">
-  <div class="section-heading"><div><h2>Extraction preview</h2><p class="page-intro">Showing up to 250 records. Review low-confidence and limited rows against the source text.</p></div><label class="table-search">Search <input id="extraction-search" type="search" placeholder="Title, country, design, finding…"></label></div>
-  <div class="table-scroll"><table id="extraction-table" class="data-table extraction-table"><thead><tr><th>Study</th><th>Location</th><th>Design</th><th>Sample</th><th>Quality</th><th>Effect estimates</th><th>Key finding and notes</th></tr></thead><tbody>
+  <div class="section-heading"><div><h2>Extraction review</h2><p class="page-intro">Showing up to 250 records. Compare every limited or low-confidence row with the linked source document.</p></div><label class="table-search">Search <input id="extraction-search" type="search" placeholder="Title, country, design, finding…"></label></div>
+  <div class="table-scroll"><table id="extraction-table" class="data-table extraction-table"><thead><tr><th>Study and source</th><th>Location</th><th>Design</th><th>Sample</th><th>Quality</th><th>Effects</th><th>Key finding and notes</th></tr></thead><tbody>
   {% for row in rows %}<tr data-search="{{ [row.Title, row.country, row.study_design, row.sample_size, row.extraction_confidence, row.data_completeness, row.key_finding_summary, row.notes] | join(' ') | lower }}">
-    <td><strong>{{ row.Title or 'Untitled record' }}</strong><small>{{ row.PMID or row.RecordID }}</small></td><td>{{ row.country or 'Not reported' }}</td><td>{{ row.study_design }}</td><td>{{ row.sample_size or 'Not reported' }}</td><td><span class="decision-badge {{ 'include' if row.extraction_confidence == 'high' else ('uncertain' if row.extraction_confidence == 'medium' else 'exclude') }}">{{ row.extraction_confidence | title }}</span><small>{{ row.data_completeness | title }}</small></td><td>{{ row.effect_estimate_count }}</td><td>{{ row.key_finding_summary }}{% if row.notes %}<details><summary>Extraction notes</summary><p>{{ row.notes }}</p></details>{% endif %}</td>
+    <td><strong>{{ row.Title or 'Untitled record' }}</strong><small>{{ row.PMID or row.RecordID }}</small>{{ source_links(row) }}<span class="status-pill {{ 'complete' if row.text_source == 'full_text_pdf' else 'attention' }}">{{ 'Full-text PDF' if row.text_source == 'full_text_pdf' else 'Abstract only' }}</span></td><td>{{ row.country or 'Not reported' }}</td><td>{{ row.study_design }}</td><td>{{ row.sample_size or 'Not reported' }}</td><td><span class="decision-badge {{ 'include' if row.extraction_confidence == 'high' else ('uncertain' if row.extraction_confidence == 'medium' else 'exclude') }}">{{ row.extraction_confidence | title }}</span><small>{{ row.data_completeness | title }}</small></td><td>{{ row.effect_estimate_count }}</td><td>{{ row.key_finding_summary }}{% if row.notes %}<details><summary>Extraction notes</summary><p>{{ row.notes }}</p></details>{% endif %}</td>
   </tr>{% endfor %}
   </tbody></table></div>
   <p id="extraction-table-count" class="page-intro"></p>
 </section>
-<script>
-const extractionSearch=document.getElementById('extraction-search');
-const extractionRows=[...document.querySelectorAll('#extraction-table tbody tr')];
-const extractionCount=document.getElementById('extraction-table-count');
-function filterExtractions(){const query=extractionSearch.value.trim().toLowerCase();let visible=0;extractionRows.forEach(row=>{const show=!query||row.dataset.search.includes(query);row.hidden=!show;if(show)visible+=1;});extractionCount.textContent=`${visible} of ${extractionRows.length} preview records shown`;}
-extractionSearch.addEventListener('input',filterExtractions);filterExtractions();
-</script>
 {% endif %}
+
+<script>
+const candidateSearch=document.getElementById('candidate-search');
+if(candidateSearch){const cards=[...document.querySelectorAll('#candidate-grid .candidate-card')];const count=document.getElementById('candidate-count');const filter=()=>{const query=candidateSearch.value.trim().toLowerCase();let visible=0;cards.forEach(card=>{const show=!query||card.dataset.search.includes(query);card.hidden=!show;if(show)visible+=1;});count.textContent=`${visible} of ${cards.length} source records shown`;};candidateSearch.addEventListener('input',filter);filter();}
+const extractionSearch=document.getElementById('extraction-search');
+if(extractionSearch){const rows=[...document.querySelectorAll('#extraction-table tbody tr')];const count=document.getElementById('extraction-table-count');const filter=()=>{const query=extractionSearch.value.trim().toLowerCase();let visible=0;rows.forEach(row=>{const show=!query||row.dataset.search.includes(query);row.hidden=!show;if(show)visible+=1;});count.textContent=`${visible} of ${rows.length} preview records shown`;};extractionSearch.addEventListener('input',filter);filter();}
+</script>
 {% endblock %}

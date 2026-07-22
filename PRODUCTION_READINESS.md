@@ -10,6 +10,8 @@ This release supports a trusted, single-reviewer workstation running through Doc
 
 The review exercised the complete interface with a real PubMed query bounded to 25 fetched records from a 58-result date window. It generated OpenAI embeddings, built and filtered the Evidence Atlas, created root and child clustering branches, selected 11 records, screened those records with Structured Outputs, compared four human-reference decisions, recorded a human adjudication, and extracted structured data for the three included abstracts. Paid API validation stayed below 200 records.
 
+The human-review follow-up exercised focus and list modes, title/abstract and full-text stages, source links, PDF controls, and the extraction source library at a 1280-pixel browser viewport. The final pass had no horizontal page overflow or browser-console errors. Responsive layouts use standards supported by current Safari and Chrome without a browser-specific atlas runtime dependency.
+
 | Component | Browser checks and release outcome |
 | --- | --- |
 | Project setup | Criteria and search strategy persist; downstream outputs invalidate when protocol inputs change. |
@@ -19,18 +21,18 @@ The review exercised the complete interface with a real PubMed query bounded to 
 | Embeddings | Model, truncation, dimensions, and progress provenance are visible; runs resume safely. |
 | Evidence Atlas | Python precomputes deterministic UMAP coordinates and cosine neighbors in a slim Parquet artifact. The interface opens Apple's official Embedding Atlas with the data URL and column settings preloaded, and offers a download-and-drop fallback for network-restricted browsers. |
 | Clustering | WCSS-first root/child branches, deterministic settings, source details, DOI/PubMed links, and selection history were exercised. |
-| Screening | Original AI fields remain immutable; human decisions, notes, timestamps, final-decision source, paging, filtering, and reviewed export are available. |
+| Screening | Focus and list review modes expose full abstracts, DOI/PubMed links, one-click decisions, progress, search, filters, and separate title/abstract and full-text audit trails. Full-text exclusions require a broad category plus specific rationale. |
 | Evaluation | Funnel, Sankey, confidence, criterion, broad exclusion categories, t-SNE, human-reference metrics, and downloadable mismatches were checked. Specific exclusion rationales remain in the screening audit. |
-| Extraction | Included/final decisions feed a resumable Structured Outputs schema; stale extractions are removed when eligibility changes; publication-oriented CSV/JSON exports are available. |
+| Extraction | Final full-text decisions feed a resumable Structured Outputs schema. Per-record PDFs are uploaded safely and used when present; abstract fallbacks are explicit; changing a source invalidates only its resumable configuration and stale project extraction references. |
 | Background tasks | PubMed fetch, embeddings, screening, and extraction run in a serial process-local worker with durable status, live progress polling, safe failures, restart recovery, and project-level write exclusion. |
-| Handoff | A ZIP assembles protocol inputs, record audit, screening/adjudication, evaluation, and extraction artifacts without credentials or embeddings. |
+| Handoff | A ZIP assembles protocol inputs, abstract/full-text decision audit, evaluation, and extraction artifacts without credentials, embeddings, or uploaded copyrighted PDFs. |
 | Runtime | Local-only port 5055 binding, required Compose secret, CSRF, security headers, local Plotly delivery, readiness check, and serialized filesystem writes define the supported deployment boundary. |
 
 ## Scientific safeguards
 
 - AI screening is decision support, not a final clinical or scientific judgment.
 - All uncertain and low-confidence screens require human review; a sample of other decisions should also be checked.
-- Abstract-only extraction is a calibration and pre-population aid. Every field and effect estimate must be verified against the full text before analysis or publication.
+- PDF-assisted and abstract-fallback extraction are calibration and pre-population aids. Every field and effect estimate must be verified manually against the source document before analysis or publication.
 - Human-reference comparisons depend on fuzzy title matching; ambiguous or unmatched records require manual inspection.
 - Retain the publication bundle, protocol version, model names, run date, prompt/schema changes, and application commit hash with the review record.
 

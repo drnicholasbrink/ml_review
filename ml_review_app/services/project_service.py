@@ -117,9 +117,21 @@ def invalidate_outputs(manifest: dict[str, Any], stage: str) -> None:
     for key in metadata_keys:
         manifest.pop(key, None)
     if "ai_screening_full_results" in file_keys:
-        for key in ("human_screening_decisions", "human_screening_reviewed_results"):
+        for key in (
+            "human_screening_decisions",
+            "human_screening_reviewed_results",
+            "human_full_text_decisions",
+            "full_text_screening_results",
+        ):
             files.pop(key, None)
-        for key in ("human_review_rows", "human_review_pending_rows", "final_screening_decision_counts"):
+        for key in (
+            "human_review_rows",
+            "human_review_pending_rows",
+            "final_screening_decision_counts",
+            "full_text_review_rows",
+            "full_text_review_pending_rows",
+            "full_text_screening_decision_counts",
+        ):
             manifest.pop(key, None)
         for key in ("human_evaluation_metrics", "human_evaluation_comparison"):
             files.pop(key, None)

@@ -385,6 +385,114 @@ def test_extraction_route_runs_a_resumable_test_and_exposes_exports(tmp_path: Pa
         assert audit["extraction_model"] == "gpt-5.6-luna"
 
 
+def test_human_review_workspace_links_full_text_upload_and_final_decision_audit(tmp_path: Path):
+    app = make_app(tmp_path)
+    client = app.test_client()
+    project_id, setup_url = create_project(client)
+    client.post(
+        setup_url,
+        data={"search_strategy": "pregnancy AND heat", "inclusion_criteria": "Include primary studies."},
+    )
+    project_path = tmp_path / "runtime" / "projects" / project_id
+    screened = pd.DataFrame([
+        {
+            "RecordID": "one",
+            "PMID": "12345678",
+            "DOI": "https://doi.org/10.1000/example",
+            "Title": "Included heat study",
+            "Abstract": "An abstract for reviewer inspection.",
+            "Authors": "Reviewer et al.",
+            "Journal": "Review Journal",
+            "ai_decision": "include",
+            "ai_confidence": "high",
+            "ai_reasoning": "Potentially eligible.",
+        }
+    ])
+    screened.to_csv(project_path / "ai_screening_full_results.csv", index=False)
+    manifest = load_manifest(project_path)
+    manifest["files"]["ai_screening_full_results"] = "ai_screening_full_results.csv"
+    save_manifest(project_path, manifest)
+
+    focus_page = client.get(f"/projects/{project_id}/screening?stage=abstract&view=focus")
+    assert focus_page.status_code == 200
+    assert b"Human review workspace" in focus_page.data
+    assert b"https://pubmed.ncbi.nlm.nih.gov/12345678/" in focus_page.data
+    assert b"https://doi.org/10.1000/example" in focus_page.data
+    assert b"Focus" in focus_page.data and b"List" in focus_page.data
+    list_page = client.get(f"/projects/{project_id}/screening?stage=abstract&view=list")
+    assert b"Read abstract" in list_page.data
+
+    record_key = focus_page.data.split(b'name="record_key" value="', 1)[1].split(b'"', 1)[0].decode()
+    full_text_page = client.get(f"/projects/{project_id}/screening?stage=full_text&view=focus")
+    assert b"Upload PDF" in full_text_page.data
+    invalid = client.post(
+        f"/projects/{project_id}/full-text/{record_key}/upload",
+        data={"full_text_pdf": (BytesIO(b"plain text"), "source.txt")},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert b"Full text must be uploaded as a PDF" in invalid.data
+
+    uploaded = client.post(
+        f"/projects/{project_id}/full-text/{record_key}/upload",
+        data={
+            "return_to": "screening",
+            "record": record_key,
+            "full_text_pdf": (BytesIO(b"%PDF-1.4\nsource article\n%%EOF"), "full article.pdf"),
+        },
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert uploaded.status_code == 200
+    assert b"Full-text PDF saved" in uploaded.data
+    assert b"Open PDF" in uploaded.data
+    inline_pdf = client.get(f"/projects/{project_id}/full-text/{record_key}.pdf")
+    assert inline_pdf.status_code == 200
+    assert inline_pdf.mimetype == "application/pdf"
+    assert inline_pdf.headers["Content-Disposition"].startswith("inline;")
+
+    decided = client.post(
+        f"/projects/{project_id}/screening",
+        data={
+            "action": "full_text_review",
+            "record_key": record_key,
+            "full_text_decision": "include",
+            "full_text_note": "Eligibility confirmed from the uploaded PDF.",
+            "stage": "full_text",
+            "view": "focus",
+        },
+        follow_redirects=True,
+    )
+    assert b"Full-text decision saved" in decided.data
+    final = pd.read_csv(project_path / "full_text_screening_results.csv")
+    assert final.loc[0, "abstract_final_decision"] == "include"
+    assert final.loc[0, "final_decision_source"] == "human_full_text"
+
+    extraction = client.get(f"/projects/{project_id}/extraction")
+    assert extraction.status_code == 200
+    assert b"Eligible source documents" in extraction.data
+    assert b"PDF ready" in extraction.data
+    assert b"Upload PDF" not in extraction.data or b"Replace PDF" in extraction.data
+
+    bundle = client.get(f"/projects/{project_id}/exports/publication-bundle.zip")
+    with zipfile.ZipFile(BytesIO(bundle.data)) as archive:
+        names = set(archive.namelist())
+        assert "artifacts/human_full_text_decisions.csv" in names
+        assert "artifacts/full_text_screening_results.csv" in names
+        assert not any(name.endswith(".pdf") for name in names)
+        audit = json.loads(archive.read("audit_manifest.json"))
+        assert audit["full_text_document_count"] == 1
+        assert audit["full_text_review_rows"] == 1
+
+    removed = client.post(
+        f"/projects/{project_id}/full-text/{record_key}/remove",
+        data={"return_to": "extraction"},
+        follow_redirects=True,
+    )
+    assert b"Full-text PDF removed" in removed.data
+    assert client.get(f"/projects/{project_id}/full-text/{record_key}.pdf").status_code == 404
+
+
 def test_cluster_search_route_is_read_only_validated_and_scoped_to_active_run(tmp_path: Path):
     app = make_app(tmp_path)
     client = app.test_client()
@@ -729,9 +837,9 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
     assert response.status_code == 302
     assert "/screening?task=" in response.headers["Location"]
     completed_screening = client.get(response.headers["Location"])
-    assert b"Screening status" in completed_screening.data
-    assert b"Human adjudication queue" in completed_screening.data
-    assert b'id="screening-table"' in completed_screening.data
+    assert b"Human review workspace" in completed_screening.data
+    assert b"Title & abstract" in completed_screening.data
+    assert b'class="review-record-card"' in completed_screening.data
     assert b"<pre>[{" not in completed_screening.data
 
     screened = pd.read_csv(project_path / "ai_screening_full_results.csv")
@@ -741,7 +849,7 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
 
     screening_page = client.get(f"/projects/{project_id}/screening?review_filter=needs_review")
     assert screening_page.status_code == 200
-    assert b"Required review pending" in screening_page.data
+    assert b"AI priority" in screening_page.data
     record_key = screening_page.data.split(b'name="record_key" value="', 1)[1].split(b'"', 1)[0].decode()
     adjudicated = client.post(
         f"/projects/{project_id}/screening",
@@ -752,7 +860,7 @@ def test_csv_workflow_end_to_end(tmp_path: Path, monkeypatch):
         follow_redirects=True,
     )
     assert adjudicated.status_code == 200
-    assert b"Human screening decision saved" in adjudicated.data
+    assert b"Title and abstract decision saved" in adjudicated.data
     reviewed = pd.read_csv(project_path / "human_screening_reviewed_results.csv")
     assert reviewed["ai_decision"].notna().all()
     assert reviewed["final_decision_source"].eq("human").sum() == 1
@@ -910,8 +1018,8 @@ def test_long_content_renders_in_responsive_containers_without_truncation(tmp_pa
 
     screening_page = client.get(f"/projects/{project_id}/screening")
     assert screening_page.status_code == 200
-    assert b'class="data-table screening-table review-table"' in screening_page.data
-    assert b'class="col-instrument" span="4"' in screening_page.data
+    assert b'class="review-record-card"' in screening_page.data
+    assert b'class="ai-guidance-panel"' in screening_page.data
     assert long_title.encode() in screening_page.data
     assert long_rationale.encode() in screening_page.data
     assert long_doi.encode() in screening_page.data

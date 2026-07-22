@@ -43,13 +43,16 @@ No Node.js frontend build is required. Docker installs the exact tested Python s
 - Optionally build a reproducible, slim Evidence Atlas artifact with precomputed UMAP coordinates and cosine neighbors, then open it in Apple's official Embedding Atlas with the projection, search text, and neighbors already mapped. A direct Parquet download remains available. Atlas exploration does not change clustering or screening selections.
 - Analyze WCSS before choosing K for every root or child projection, then create reproducible t-SNE/K-Means runs in an immutable branch tree with parent navigation and clickable abstract inspection.
 - Select clusters and run resumable OpenAI Structured Outputs screening with one controlled broad exclusion category and a concise record-specific rationale for every excluded record.
-- Review source abstracts and AI rationales in a paginated adjudication queue. Human decisions and notes are timestamped, preserve the original AI audit trail, and become the final decisions used downstream.
+- Review records one at a time or in a searchable card list, with visible abstracts, keyboard-assisted decisions, and direct PubMed/DOI links. Human title-and-abstract decisions and notes are timestamped and preserve the original AI audit trail.
+- Move eligible records into a distinct full-text stage, upload or replace a project-scoped PDF from each record card, and record a final include, exclude, or uncertain decision. Full-text exclusions require both a controlled broad category and a concise record-specific rationale.
 - Explore locally served Plotly funnel, Sankey, confidence, criterion, broad exclusion-category, and t-SNE evaluation views. Legacy reason-only results are normalized into the same broad categories for evaluation.
 - Optionally compare AI screening with a human-reference CSV using one-to-one fuzzy title matching and downloadable metrics/mismatches.
-- Run resumable abstract-only structured extraction on a bounded test sample before the full included set, then export nested JSON, study characteristics, effect estimates, and an extraction summary.
-- Download individual artifacts or a publication handoff ZIP containing the protocol inputs, decision audit, evaluation, and extraction outputs. Embeddings and credentials are excluded from the bundle.
+- Run resumable structured extraction on a bounded test sample before the full included set. Each record uses its uploaded full-text PDF when available and an explicitly labelled abstract fallback otherwise, then exports nested JSON, study characteristics, effect estimates, and an extraction summary.
+- Download individual artifacts or a publication handoff ZIP containing the protocol inputs, abstract/full-text decision audit, evaluation, and extraction outputs. Embeddings, credentials, and copyrighted source PDFs are excluded from the bundle.
 
-AI screening and extraction are decision support. Human reviewers must validate prompts and model choices on a sample, review every uncertain and low-confidence screen, validate abstract extraction against source full text, compare with human screening when available, and record criteria/model/date/prompt changes.
+AI screening and extraction are decision support. Human reviewers must validate prompts and model choices on a sample, resolve the human screening workflow, verify extracted fields against source documents, compare with human screening when available, and record criteria/model/date/prompt changes.
+
+Full-text uploads must be PDF files no larger than 50 MB. They are stored only inside the owning project's gitignored runtime directory, removed with the project, and deliberately omitted from the publication bundle to avoid redistributing source documents.
 
 ## Background tasks
 
@@ -70,7 +73,7 @@ The bundled background worker is intentionally process-local and sized for the s
 - Confirm the search query, date range, fetched count, and deduplication report.
 - Record and freeze the inclusion/exclusion criteria before the final screening run.
 - Validate the chosen model and prompt behavior on a human-reviewed sample.
-- Resolve every uncertain and low-confidence screening item and sample-check the rest.
+- Resolve title-and-abstract and full-text eligibility decisions, including a broad category and specific rationale for each full-text exclusion.
 - Compare against an independent human reference when one is available; inspect fuzzy-match mismatches.
-- Validate every extracted field and effect estimate against the full text. The interface extracts from abstracts only.
+- Upload available full texts, confirm every extraction output identifies its source as PDF or abstract fallback, and validate every field and effect estimate manually.
 - Download the publication bundle and retain the application commit hash alongside it.

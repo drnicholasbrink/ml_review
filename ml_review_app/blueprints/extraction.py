@@ -3,22 +3,64 @@
 from __future__ import annotations
 
 import json
+import re
+from urllib.parse import quote
 
 import pandas as pd
 from flask import Blueprint, current_app, redirect, render_template, request, url_for
 
 from ..services.credential_service import credential_available, resolve_api_key
 from ..services.extraction_service import extract_csv, extraction_candidates, write_extraction_exports
+from ..services.full_text_service import full_text_path
 from ..services.project_service import load_manifest, project_dir, save_manifest
 from ..services.validation_service import parse_bounded_int, validate_text
 
 bp = Blueprint("extraction", __name__, url_prefix="/projects/<project_id>/extraction")
 
 
-def _preview_rows(frame: pd.DataFrame) -> list[dict]:
+def _identifier(value: object) -> str:
+    if pd.isna(value):
+        return ""
+    text = str(value).strip()
+    return text[:-2] if re.fullmatch(r"\d+\.0", text) else text
+
+
+def _source_urls(row: dict) -> tuple[str, str]:
+    pmid = _identifier(row.get("PMID"))
+    pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if re.fullmatch(r"\d+", pmid) else ""
+    doi = _identifier(row.get("DOI"))
+    doi = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", doi, flags=re.IGNORECASE).strip()
+    return pubmed_url, f"https://doi.org/{quote(doi, safe='/')}" if doi else ""
+
+
+def _attach_record_context(rows: list[dict], project_path, manifest: dict) -> list[dict]:
+    documents = manifest.get("full_text_documents", {})
+    for row in rows:
+        row["PMID"] = _identifier(row.get("PMID"))
+        row["RecordID"] = _identifier(row.get("RecordID"))
+        row["pubmed_url"], row["doi_url"] = _source_urls(row)
+        record_key = str(row.get("record_key") or row.get("extraction_record_key") or "")
+        row["record_key"] = record_key
+        metadata = documents.get(record_key)
+        managed_pdf = full_text_path(project_path, manifest, record_key) if re.fullmatch(r"[a-f0-9]{24}", record_key) else None
+        row["full_text"] = metadata if metadata and managed_pdf else None
+    return rows
+
+
+def _candidate_rows(frame: pd.DataFrame, project_path, manifest: dict) -> list[dict]:
     columns = [
-        "RecordID", "PMID", "Title", "country", "study_design", "sample_size", "extraction_confidence",
-        "data_completeness", "key_finding_summary", "effect_estimates", "notes",
+        "record_key", "RecordID", "PMID", "DOI", "Title", "Abstract", "Authors", "Journal", "Date", "Year",
+        "final_decision", "final_decision_source", "abstract_final_decision", "full_text_decision",
+    ]
+    candidates = frame[[column for column in columns if column in frame.columns]].head(250).copy()
+    return _attach_record_context(candidates.fillna("").to_dict(orient="records"), project_path, manifest)
+
+
+def _preview_rows(frame: pd.DataFrame, project_path, manifest: dict) -> list[dict]:
+    columns = [
+        "record_key", "extraction_record_key", "RecordID", "PMID", "DOI", "Title", "country", "study_design",
+        "sample_size", "extraction_confidence", "data_completeness", "key_finding_summary", "effect_estimates",
+        "notes", "text_source", "full_text_filename",
     ]
     preview = frame[[column for column in columns if column in frame.columns]].head(250).copy()
     if "effect_estimates" in preview:
@@ -29,7 +71,7 @@ def _preview_rows(frame: pd.DataFrame) -> list[dict]:
             except (json.JSONDecodeError, TypeError):
                 return 0
         preview["effect_estimate_count"] = preview["effect_estimates"].fillna("[]").map(list_length)
-    return preview.fillna("").to_dict(orient="records")
+    return _attach_record_context(preview.fillna("").to_dict(orient="records"), project_path, manifest)
 
 
 @bp.route("", methods=["GET", "POST"])
@@ -37,8 +79,17 @@ def extraction(project_id: str):
     path = project_dir(current_app.config["RUNTIME_DIR"], project_id)
     manifest = load_manifest(path)
     files = manifest.get("files", {})
-    screening_name = files.get("human_screening_reviewed_results") or files.get("ai_screening_full_results")
-    decision_source_label = "Human-reviewed final decisions" if files.get("human_screening_reviewed_results") else "AI screening decisions"
+    screening_name = (
+        files.get("full_text_screening_results")
+        or files.get("human_screening_reviewed_results")
+        or files.get("ai_screening_full_results")
+    )
+    if files.get("full_text_screening_results"):
+        decision_source_label = "Final staged screening decisions"
+    elif files.get("human_screening_reviewed_results"):
+        decision_source_label = "Human-reviewed abstract decisions"
+    else:
+        decision_source_label = "AI screening decisions"
     screening_path = path / screening_name if screening_name else None
     source_ready = bool(screening_path and screening_path.is_file())
     criteria_path = path / "inclusion_criteria.txt"
@@ -47,11 +98,21 @@ def extraction(project_id: str):
     error = None
     rows = None
     candidate_count = 0
+    candidate_rows = []
+    full_text_count = 0
+    full_text_files = {}
     include_uncertain = bool(manifest.get("extraction_include_uncertain", False))
 
     if source_ready:
         try:
-            candidate_count = len(extraction_candidates(pd.read_csv(screening_path), include_uncertain=include_uncertain))
+            candidate_frame = extraction_candidates(pd.read_csv(screening_path), include_uncertain=include_uncertain)
+            candidate_count = len(candidate_frame)
+            candidate_rows = _candidate_rows(candidate_frame, path, manifest)
+            for record_key in candidate_frame["record_key"].astype(str):
+                source = full_text_path(path, manifest, record_key)
+                if source is not None:
+                    full_text_files[record_key] = source
+            full_text_count = len(full_text_files)
         except ValueError:
             candidate_count = 0
 
@@ -100,6 +161,7 @@ def extraction(project_id: str):
                     include_uncertain=include_uncertain,
                     limit=limit,
                     resume=resume,
+                    full_text_files=full_text_files,
                     progress_callback=progress,
                 )
                 derived = write_extraction_exports(result, path)
@@ -131,7 +193,7 @@ def extraction(project_id: str):
     if rows is None:
         output_name = manifest.get("files", {}).get("ai_extraction_full_results")
         if output_name and (path / output_name).is_file():
-            rows = _preview_rows(pd.read_csv(path / output_name))
+            rows = _preview_rows(pd.read_csv(path / output_name), path, manifest)
     return render_template(
         "extraction.html",
         manifest=manifest,
@@ -139,6 +201,8 @@ def extraction(project_id: str):
         source_ready=source_ready,
         fallback_available=fallback_available,
         candidate_count=candidate_count,
+        candidate_rows=candidate_rows,
+        full_text_count=full_text_count,
         include_uncertain=include_uncertain,
         decision_source_label=decision_source_label,
         rows=rows,

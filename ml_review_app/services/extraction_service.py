@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -12,8 +13,10 @@ import pandas as pd
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
+from .screening_service import screening_record_key
+
 MAX_EXTRACTION_RECORD_LENGTH = 100_000
-EXTRACTION_SCHEMA_VERSION = 1
+EXTRACTION_SCHEMA_VERSION = 2
 
 
 class GeographicLocation(BaseModel):
@@ -72,22 +75,24 @@ class DataExtraction(BaseModel):
 
 
 def _record_key(row: pd.Series, index: int) -> str:
-    for column in ("RecordID", "PMID", "DOI"):
-        value = row.get(column)
-        if pd.notna(value) and str(value).strip():
-            return f"{column.lower()}:{str(value).strip()}"
-    seed = f"{index}\n{row.get('Title', '')}"
-    return "title:" + hashlib.sha256(seed.encode()).hexdigest()[:24]
+    value = row.get("record_key")
+    return str(value) if pd.notna(value) and str(value).strip() else screening_record_key(row, index)
 
 
-def _configuration_hash(criteria: str, model: str) -> str:
-    payload = f"schema={EXTRACTION_SCHEMA_VERSION}\nmodel={model}\nlimit={MAX_EXTRACTION_RECORD_LENGTH}\n{criteria}"
+def _configuration_hash(criteria: str, model: str, source_hash: str = "abstract") -> str:
+    payload = (
+        f"schema={EXTRACTION_SCHEMA_VERSION}\nmodel={model}\nlimit={MAX_EXTRACTION_RECORD_LENGTH}"
+        f"\nsource={source_hash}\n{criteria}"
+    )
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def extraction_candidates(screening_df: pd.DataFrame, *, include_uncertain: bool) -> pd.DataFrame:
     if screening_df.empty or "ai_decision" not in screening_df.columns:
         raise ValueError("Screening results are empty or missing ai_decision")
+    screening_df = screening_df.reset_index(drop=True).copy()
+    if "record_key" not in screening_df:
+        screening_df["record_key"] = [screening_record_key(row, index) for index, row in screening_df.iterrows()]
     decisions = screening_df.get("final_decision", screening_df["ai_decision"]).fillna("").astype(str).str.lower()
     allowed = {"include", "uncertain"} if include_uncertain else {"include"}
     return screening_df[decisions.isin(allowed)].copy().reset_index(drop=True)
@@ -101,9 +106,10 @@ def extract_record(
     api_key: str,
     model: str,
     record_identifier: str,
+    full_text_pdf: Path | None = None,
     client: Any | None = None,
 ) -> DataExtraction:
-    """Extract only explicitly reported abstract data using Structured Outputs."""
+    """Extract explicitly reported data from a PDF when available, otherwise the abstract."""
 
     if not api_key:
         raise ValueError("An OpenAI API key is required")
@@ -112,20 +118,36 @@ def extract_record(
     abstract_excerpt = abstract[:abstract_allowance]
     truncated = len(title) + len(abstract) > MAX_EXTRACTION_RECORD_LENGTH
     api_client = client or OpenAI(api_key=api_key)
+    source_description = "supplied full-text PDF and abstract" if full_text_pdf else "supplied title and abstract"
+    text_input = (
+        f"TITLE:\n{title}\n\n"
+        f"ABSTRACT{' (LEADING EXCERPT; INPUT WAS TRUNCATED)' if truncated else ''}:\n{abstract_excerpt}"
+    )
+    response_input: Any = text_input
+    if full_text_pdf is not None:
+        encoded_pdf = base64.b64encode(full_text_pdf.read_bytes()).decode("ascii")
+        response_input = [{
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": text_input},
+                {
+                    "type": "input_file",
+                    "filename": full_text_pdf.name,
+                    "file_data": f"data:application/pdf;base64,{encoded_pdf}",
+                },
+            ],
+        }]
     response = api_client.responses.parse(
         model=model,
         instructions=(
             "You are assisting a systematic-review team with structured data extraction. "
-            "Extract only information explicitly stated in the supplied title and abstract. "
+            f"Extract only information explicitly stated in the {source_description}. "
             "Do not infer missing details. Preserve effect estimates and uncertainty intervals in their reported form. "
             "Use empty lists or null values when information is absent, and lower confidence/completeness when the abstract is insufficient. "
             "The result is decision support and must be validated by a human reviewer.\n\n"
             f"REVIEW CRITERIA:\n{criteria}"
         ),
-        input=(
-            f"TITLE:\n{title}\n\n"
-            f"ABSTRACT{' (LEADING EXCERPT; INPUT WAS TRUNCATED)' if truncated else ''}:\n{abstract_excerpt}"
-        ),
+        input=response_input,
         text_format=DataExtraction,
         reasoning={"effort": "low"},
         safety_identifier="ml-review-extract-" + hashlib.sha256(record_identifier.encode()).hexdigest()[:24],
@@ -136,7 +158,15 @@ def extract_record(
     return response.output_parsed
 
 
-def _flatten_result(row: pd.Series, extraction: DataExtraction, *, key: str, model: str, config_hash: str) -> dict[str, Any]:
+def _flatten_result(
+    row: pd.Series,
+    extraction: DataExtraction,
+    *,
+    key: str,
+    model: str,
+    config_hash: str,
+    full_text_pdf: Path | None,
+) -> dict[str, Any]:
     value = extraction.model_dump()
     location = value["location"]
     base_columns = [
@@ -173,7 +203,8 @@ def _flatten_result(row: pd.Series, extraction: DataExtraction, *, key: str, mod
             "data_completeness": value["data_completeness"],
             "extraction_confidence": value["extraction_confidence"],
             "notes": value["notes"],
-            "text_source": "abstract",
+            "text_source": "full_text_pdf" if full_text_pdf else "abstract",
+            "full_text_filename": full_text_pdf.name if full_text_pdf else None,
             "extraction_model": model,
             "extraction_config_hash": config_hash,
             "extraction_timestamp": datetime.now(timezone.utc).isoformat(),
@@ -194,6 +225,7 @@ def extract_csv(
     limit: int | None = None,
     resume: bool = True,
     client: Any | None = None,
+    full_text_files: dict[str, Path] | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[pd.DataFrame, int]:
     """Extract eligible records with progress saved after every response."""
@@ -205,14 +237,29 @@ def extract_csv(
         raise ValueError("No included records are available for extraction")
     batch = candidates.head(limit).copy() if limit is not None else candidates
     candidate_keys = {_record_key(row, index) for index, row in candidates.iterrows()}
-    config_hash = _configuration_hash(criteria, model)
+    full_text_files = full_text_files or {}
+    expected_configs: dict[str, str] = {}
+    for index, row in candidates.iterrows():
+        key = _record_key(row, index)
+        full_text_pdf = full_text_files.get(key)
+        if full_text_pdf and full_text_pdf.is_file():
+            source_bytes = full_text_pdf.read_bytes()
+        else:
+            title = "" if pd.isna(row.get("Title")) else str(row.get("Title", ""))
+            abstract = "" if pd.isna(row.get("Abstract")) else str(row.get("Abstract", ""))
+            source_bytes = f"{title}\n{abstract}".encode()
+        source_hash = hashlib.sha256(source_bytes).hexdigest()
+        expected_configs[key] = _configuration_hash(criteria, model, source_hash)
     existing = pd.DataFrame()
     if resume and output_csv.exists():
         existing = pd.read_csv(output_csv)
-        if "extraction_config_hash" in existing.columns:
-            existing = existing[existing["extraction_config_hash"].fillna("").eq(config_hash)].copy()
-            if "extraction_record_key" in existing.columns:
-                existing = existing[existing["extraction_record_key"].fillna("").astype(str).isin(candidate_keys)].copy()
+        if {"extraction_config_hash", "extraction_record_key"}.issubset(existing.columns):
+            existing_keys = existing["extraction_record_key"].fillna("").astype(str)
+            matches = [
+                key in candidate_keys and str(config) == expected_configs.get(key)
+                for key, config in zip(existing_keys, existing["extraction_config_hash"], strict=False)
+            ]
+            existing = existing.loc[matches].drop_duplicates("extraction_record_key", keep="last").copy()
         else:
             existing = pd.DataFrame()
     processed = set(existing.get("extraction_record_key", pd.Series(dtype="object")).fillna("").astype(str))
@@ -227,6 +274,9 @@ def extract_csv(
             continue
         title = "" if pd.isna(row.get("Title")) else str(row.get("Title", ""))
         abstract = "" if pd.isna(row.get("Abstract")) else str(row.get("Abstract", ""))
+        full_text_pdf = full_text_files.get(key)
+        if full_text_pdf is not None and not full_text_pdf.is_file():
+            full_text_pdf = None
         extraction = extract_record(
             title,
             abstract,
@@ -234,9 +284,17 @@ def extract_csv(
             api_key=api_key,
             model=model,
             record_identifier=key,
+            full_text_pdf=full_text_pdf,
             client=client,
         )
-        rows.append(_flatten_result(row, extraction, key=key, model=model, config_hash=config_hash))
+        rows.append(_flatten_result(
+            row,
+            extraction,
+            key=key,
+            model=model,
+            config_hash=expected_configs[key],
+            full_text_pdf=full_text_pdf,
+        ))
         processed.add(key)
         pd.DataFrame(rows).to_csv(output_csv, index=False)
         completed += 1

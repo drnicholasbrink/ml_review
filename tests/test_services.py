@@ -1,8 +1,10 @@
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
+from werkzeug.datastructures import FileStorage
 
 from ml_review_app.services.clustering_service import build_cluster_search, cluster_csv, parse_cluster_keywords
 from ml_review_app.services.deduplication_service import deduplicate_records, normalize_text
@@ -16,6 +18,13 @@ from ml_review_app.services.extraction_service import (
     OutcomeMeasure,
     extract_csv,
     write_extraction_exports,
+)
+from ml_review_app.services.full_text_service import (
+    apply_full_text_reviews,
+    full_text_path,
+    remove_full_text_pdf,
+    save_full_text_pdf,
+    save_full_text_review,
 )
 from ml_review_app.services.import_service import build_column_mapping, normalize_records, profile_csv
 from ml_review_app.services.screening_service import (
@@ -58,6 +67,131 @@ def test_human_screening_review_preserves_ai_audit_and_sets_final_decision(tmp_p
     )
     assert cleared.loc[0, "final_decision"] == "uncertain"
     assert cleared.loc[0, "final_decision_source"] == "ai"
+
+
+def test_full_text_pdf_storage_and_human_review_preserve_stage_audit(tmp_path: Path):
+    screening_path = tmp_path / "abstract-reviewed.csv"
+    reviews_path = tmp_path / "full-text-reviews.csv"
+    final_path = tmp_path / "full-text-results.csv"
+    abstract = apply_human_reviews(pd.DataFrame([
+        {
+            "RecordID": "one", "PMID": "123", "Title": "Heat and pregnancy", "Abstract": "Study abstract.",
+            "ai_decision": "include", "ai_confidence": "high", "final_decision": "include",
+        }
+    ]))
+    abstract.to_csv(screening_path, index=False)
+    record_key = abstract.loc[0, "record_key"]
+    manifest = {"full_text_documents": {}}
+
+    with pytest.raises(ValueError, match="PDF"):
+        save_full_text_pdf(
+            tmp_path,
+            manifest,
+            record_key,
+            FileStorage(stream=BytesIO(b"not a pdf"), filename="article.txt"),
+            valid_record_keys={record_key},
+        )
+
+    metadata = save_full_text_pdf(
+        tmp_path,
+        manifest,
+        record_key,
+        FileStorage(stream=BytesIO(b"%PDF-1.4\nreview source\n%%EOF"), filename="Source article.pdf"),
+        valid_record_keys={record_key},
+    )
+    manifest["full_text_documents"][record_key] = metadata
+    managed_path = full_text_path(tmp_path, manifest, record_key)
+    assert managed_path is not None and managed_path.read_bytes().startswith(b"%PDF-")
+    assert metadata["original_filename"] == "Source_article.pdf"
+
+    with pytest.raises(ValueError, match="broad exclusion category"):
+        save_full_text_review(
+            screening_path, reviews_path, final_path,
+            record_key=record_key, decision="exclude", exclusion_category="", exclusion_reason="Wrong design", note="",
+        )
+    reviewed = save_full_text_review(
+        screening_path, reviews_path, final_path,
+        record_key=record_key,
+        decision="exclude",
+        exclusion_category="study_design",
+        exclusion_reason="Conference abstract only after checking the source.",
+        note="Reviewer confirmed the exclusion.",
+    )
+    assert reviewed.loc[0, "abstract_final_decision"] == "include"
+    assert reviewed.loc[0, "final_decision"] == "exclude"
+    assert reviewed.loc[0, "final_decision_source"] == "human_full_text"
+    assert reviewed.loc[0, "full_text_exclusion_category"] == "study_design"
+    assert not bool(reviewed.loc[0, "requires_full_text_review"])
+
+    remove_full_text_pdf(tmp_path, manifest, record_key)
+    assert full_text_path(tmp_path, manifest, record_key) is None
+
+
+def test_full_text_storage_rejects_a_symlinked_document_directory(tmp_path: Path):
+    record_key = "a" * 24
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (tmp_path / "full_texts").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="unsafe"):
+        save_full_text_pdf(
+            tmp_path,
+            {"full_text_documents": {}},
+            record_key,
+            FileStorage(stream=BytesIO(b"%PDF-1.4\n%%EOF"), filename="source.pdf"),
+            valid_record_keys={record_key},
+        )
+    assert not (outside / f"{record_key}.pdf").exists()
+
+
+def test_extraction_uses_pdf_and_reextracts_when_source_changes(tmp_path: Path):
+    source = tmp_path / "screening.csv"
+    screened = apply_human_reviews(pd.DataFrame([
+        {
+            "RecordID": "one", "Title": "Included study", "Abstract": "Stored abstract",
+            "ai_decision": "include", "ai_confidence": "high",
+        }
+    ]))
+    screened.to_csv(source, index=False)
+    record_key = screened.loc[0, "record_key"]
+    pdf = tmp_path / "source.pdf"
+    pdf.write_bytes(b"%PDF-1.4\nfirst source\n%%EOF")
+    parsed = DataExtraction(
+        population_description="Participants",
+        location=GeographicLocation(country="South Africa"),
+        study_design="cohort",
+        key_finding_summary="Reported finding.",
+        data_completeness="complete",
+        extraction_confidence="high",
+    )
+
+    class FakeResponses:
+        def __init__(self):
+            self.calls = []
+
+        def parse(self, **kwargs):
+            self.calls.append(kwargs)
+            return SimpleNamespace(output_parsed=parsed)
+
+    responses = FakeResponses()
+    output = tmp_path / "extraction.csv"
+    first, _ = extract_csv(
+        source, "Include eligible studies.", output,
+        api_key="test-key", model="gpt-5.6-luna",
+        full_text_files={record_key: pdf}, client=SimpleNamespace(responses=responses),
+    )
+    file_part = responses.calls[0]["input"][0]["content"][1]
+    assert file_part["type"] == "input_file"
+    assert file_part["file_data"].startswith("data:application/pdf;base64,")
+    assert first.loc[0, "text_source"] == "full_text_pdf"
+
+    pdf.write_bytes(b"%PDF-1.4\nchanged source\n%%EOF")
+    second, _ = extract_csv(
+        source, "Include eligible studies.", output,
+        api_key="test-key", model="gpt-5.6-luna",
+        full_text_files={record_key: pdf}, client=SimpleNamespace(responses=responses),
+    )
+    assert len(responses.calls) == 2
+    assert second.loc[0, "text_source"] == "full_text_pdf"
 
 
 def test_structured_extraction_resumes_and_writes_publication_exports(tmp_path: Path):
