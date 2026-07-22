@@ -1,237 +1,231 @@
 # ML Review
 
-## Overview
+ML Review is a human-in-the-loop systematic-review workspace. It combines a production-like localhost web application with the repository's original Jupyter notebooks for PubMed retrieval, deduplication, embeddings, evidence exploration, AI-assisted screening, full-text review, evaluation, extraction, and publication handoff.
 
-This repository contains a notebook-first workflow for machine-learning-assisted systematic review work. It retrieves PubMed records, enriches abstracts with embeddings, clusters records for exploratory review, screens abstracts against inclusion criteria with OpenAI structured outputs, extracts structured data from included studies, and optionally compares AI decisions with human review exports.
+AI output is decision support—not a final clinical or scientific judgment. Human decisions remain separate, override AI decisions when they disagree, and are preserved in the exported audit trail.
 
-The project is intentionally organized around manually run notebooks rather than a single automated pipeline. Long-running steps call external APIs, produce large intermediate files, and require human validation.
+## What it supports
 
-An accompanying localhost web workflow covers the same review lifecycle with resumable project state, an Evidence Atlas, human screening adjudication, evaluation, structured extraction, and a publication handoff bundle. See [README_FLASK_APP.md](README_FLASK_APP.md) for operation and [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) for the validated deployment boundary and scientific safeguards.
+- Isolated review projects with guarded project deletion.
+- PubMed search and bounded background retrieval, or CSV import and column mapping.
+- Duplicate detection with a retained/removed audit.
+- Resumable OpenAI embeddings.
+- A reproducible Evidence Atlas artifact with precomputed UMAP coordinates and cosine neighbors for Apple's official Embedding Atlas.
+- WCSS-first t-SNE/K-Means exploration with immutable root and child branches.
+- Structured title-and-abstract screening with broad exclusion categories.
+- Focus or list-mode human review, DOI/PubMed links, compound filters, and explicit AI/human/final decision layers.
+- An optional full-text stage with per-record PDF upload, resumable PDF-backed AI screening, human overrides, and disagreement filtering.
+- Human-reference evaluation using either explicit workflow decisions or a separate included-records CSV.
+- Resumable structured extraction from uploaded PDFs, with an explicitly labelled abstract fallback.
+- A publication bundle containing protocol inputs, decision audits, evaluation, and extraction artifacts.
 
-## Repository layout
+## Supported deployment profile
 
-- `environment.yml` — Conda environment definition for the notebook stack.
-- `requirements_.txt` — pip-style dependency list mirroring the Python packages in the Conda environment.
-- `requirements_app.lock` — exact tested Python dependency set used by the Docker web application.
-- `.gitignore` — excludes secrets, logs, caches, and generated PubMed CSVs.
-- `scripts/search_strategy.txt` — PubMed query string used by the search notebook.
-- `scripts/inclusion_criteria.txt` — criteria used by the AI screening notebook.
-- `scripts/search_pubmed.ipynb` — queries PubMed through NCBI E-utilities and writes article metadata.
-- `scripts/extract_pubmed.ipynb` — creates OpenAI embeddings for abstracts.
-- `scripts/extract_csv.ipynb` — embeds records from an existing CSV source.
-- `scripts/deduplicate.ipynb` — helper notebook for deduplicating clustered/exported records.
-- `scripts/clustering.ipynb` — runs t-SNE/K-Means exploration and writes cluster visualizations.
-- `scripts/ai_screening.ipynb` — screens abstracts with OpenAI structured outputs.
-- `scripts/AI_SCREENING_GUIDE.md` — detailed guide for the AI screening workflow.
-- `scripts/ai_extraction.ipynb` — extracts structured study data with OpenAI structured outputs and Pydantic models.
-- `scripts/eval.ipynb` — compares AI screening output to a human screening CSV using fuzzy title matching.
+The supplied application is designed for a trusted, single-reviewer workstation. Docker Compose binds it to localhost, runs one Gunicorn worker to serialize filesystem-backed writes, and stores generated project data under the gitignored `runtime/` directory.
 
-## Setup
+Remote or concurrent multi-user deployment is outside this profile. It requires authentication and authorization, TLS, an external durable queue, shared transactional storage, centralized audit logging, backups, retention controls, and an appropriate privacy/security review.
 
-Create and activate the Conda environment:
+## Quick start with Docker
+
+1. Create the local environment file:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Add a non-default Flask session secret and any API keys you want the application to use:
+
+   ```dotenv
+   ML_REVIEW_SECRET_KEY=replace-with-a-long-random-value
+   OPENAI_API_KEY=
+   PUBMED_API_KEY=
+   ```
+
+   If `scripts/secret_keys.py` already contains the keys, generate `.env` without printing their values:
+
+   ```bash
+   python scripts/export_secrets_to_env.py
+   ```
+
+3. Build and start the application:
+
+   ```bash
+   docker compose up --build
+   ```
+
+4. Open <http://localhost:5055>.
+
+To use another host port:
+
+```bash
+ML_REVIEW_PORT=5056 docker compose up --build
+```
+
+The Docker image installs the exact tested Python set from `requirements_app.lock`. No Node.js frontend build is required to run the application.
+
+## Local application development
+
+```bash
+pip install -r requirements_.txt
+flask --app wsgi:app run --debug --port 5055
+```
+
+Run the tests with:
+
+```bash
+pytest -q
+```
+
+Or validate inside the release container:
+
+```bash
+docker compose run --rm ml-review pytest -q
+```
+
+## Notebook environment
+
+The notebooks remain a supported manual workflow. Create the Conda environment with:
 
 ```bash
 conda env create -f environment.yml
 conda activate ml_review
 ```
 
-Optionally register a Jupyter kernel:
+Optionally register a kernel:
 
 ```bash
 python -m ipykernel install --user --name ml_review --display-name "Python (ml_review)"
 ```
 
-If you are not using Conda, install the Python dependencies with:
-
-```bash
-pip install -r requirements_.txt
-```
-
-## Secrets and configuration
-
-Create a local `secret_keys.py` file when running notebooks that call PubMed or OpenAI:
+Notebook API keys are read from a local, gitignored `secret_keys.py`:
 
 ```python
 OPENAI_API_KEY = "your-openai-api-key"
 PUBMED_API_KEY = "your-ncbi-api-key"
 ```
 
-`secret_keys.py` is ignored by git and must not be committed. Generated logs, PubMed ID caches, and PubMed result CSVs are also ignored.
+## Web workflow
 
-## Current dependencies and OpenAI usage
+### 1. Review setup
 
-This repository now targets the modern OpenAI Python SDK (`openai>=1.0.0`) with Pydantic (`pydantic>=2.0.0`). New OpenAI code should use the `OpenAI` client and structured-output patterns used by `scripts/ai_screening.ipynb` and `scripts/ai_extraction.ipynb`.
+Save the PubMed query and inclusion/exclusion criteria that define the review. Changing these inputs invalidates stale downstream artifacts while leaving source files available where safe.
 
-Some older exploratory notebooks may still contain legacy OpenAI patterns or historical local paths. Prefer updating touched cells to relative paths and modern SDK usage rather than copying legacy patterns forward.
+### 2. Retrieve or import records
 
-## End-to-end workflow
+Count and fetch a deliberately bounded PubMed result set, or upload a CSV, inspect its preview, map source columns, and normalize the records.
 
-### 1. Define the PubMed search
+### 3. Deduplicate
 
-Edit `scripts/search_strategy.txt` with the PubMed query for the review. Keep shareable examples generic and avoid committing sensitive or project-private details.
+Review duplicate groups before producing the deduplicated source. The retained and removed records remain available as an audit artifact.
 
-### 2. Fetch PubMed records
+### 4. Generate embeddings and explore the Evidence Atlas
 
-Run `scripts/search_pubmed.ipynb` from the repository root or adjust paths accordingly. The notebook:
+Generate resumable OpenAI embeddings. The optional Evidence Atlas step writes a slim Parquet handoff with deterministic UMAP coordinates and nearest neighbors. Local development offers a download-and-drop workflow; a publicly reachable HTTPS deployment can preload the data in Apple's official viewer when `ML_REVIEW_PUBLIC_BASE_URL` is configured.
 
-- Reads `scripts/search_strategy.txt`.
-- Calls PubMed ESearch/EFetch endpoints with the NCBI API key.
-- Splits large searches by date window to stay within API/result constraints.
-- Caches PMIDs in `pubmed_ids.json` to avoid duplicate processing across runs.
-- Writes `pubmed_results_complete.csv` with fields such as PMID, title, abstract, authors, date, and journal.
-- Logs progress to `pubmed_fetch.log`.
+Atlas exploration does not modify clustering or screening selections.
 
-### 3. Create embeddings
+### 5. Cluster and select records
 
-Run `scripts/extract_pubmed.ipynb` to embed abstracts from `pubmed_results_complete.csv`. It writes `pubmed_results_with_embeddings.csv` with an `Embedding` column containing serialized vectors.
+Inspect WCSS before choosing K. Saved t-SNE/K-Means runs form an immutable branch tree, allowing reviewers to reopen a parent seed and create a new branch without overwriting prior exploration.
 
-If you already have a CSV source, `scripts/extract_csv.ipynb` provides a related embedding path and writes `csv_results_with_embeddings.csv`.
+Clusters are navigation aids, not eligibility decisions.
 
-### 4. Explore clusters
+### 6. Screen and review
 
-Run `scripts/clustering.ipynb` after embeddings exist. The notebook converts stored embeddings to arrays, scales them, reduces them to two dimensions with t-SNE, clusters with K-Means, and writes cluster CSVs and Plotly visualizations under `outputs/`.
+Run structured title-and-abstract screening, then review records one at a time or in a list. Reviewers can filter independently by review status, final decision, AI decision, identifiers, citation text, or keywords.
 
-Cluster counts, search terms, and subsets are manual exploratory choices. Treat cluster labels as review aids, not final inclusion/exclusion decisions.
+Decision provenance is explicit:
 
-### 5. Screen abstracts with AI
+- **AI decision** is the model output.
+- **AI accepted** records that a reviewer accepted the AI result without fabricating a human decision.
+- **Human decision** is an explicit reviewer judgment.
+- **Final decision** uses the human decision whenever one exists; disagreement remains visible.
 
-Review `scripts/AI_SCREENING_GUIDE.md`, then run `scripts/ai_screening.ipynb`. The notebook:
+Eligible records can proceed to the optional full-text stage. Upload a PDF on the record card, review it manually, or run resumable PDF-backed AI screening. Full-text exclusions require a controlled broad category and a concise record-specific reason. Reviewers may skip full-text screening and continue directly to extraction.
 
-- Loads PubMed/embedding records.
-- Loads screening criteria from `scripts/inclusion_criteria.txt`.
-- Uses OpenAI structured outputs to return validated screening decisions.
-- Saves incremental results under `outputs/`, including test and full screening CSVs.
-- Produces summary reports and optional visualizations.
+### 7. Evaluate
 
-Recommended practice is to test on a small sample, refine criteria/prompts, then run a full screen. Human reviewers should manually review all `uncertain` and low-confidence decisions.
+Evaluation includes locally served Plotly funnel, Sankey, confidence, criterion, exclusion-category, and t-SNE views.
 
-### 6. Extract structured data
+Choose one of two human-reference modes:
 
-Run `scripts/ai_extraction.ipynb` after screening. It filters included studies from `outputs/ai_screening_full_results.csv`, calls OpenAI with Pydantic schemas, and writes extraction CSV/JSON exports under `outputs/`.
+- **Workflow decisions:** use only explicit human title/abstract or full-text decisions. Full-text human decisions take precedence, and unreviewed or AI-accepted records are not counted as negatives.
+- **Included-records CSV:** upload an independent CSV containing `Title`. Each row is treated as included unless the file also contains a supported decision or status column.
 
-Start with a small test batch before full extraction because this step can make many paid API calls.
+Both modes support configurable fuzzy title matching and uncertain-as-retained behavior. Inspect unmatched or ambiguous titles before interpreting sensitivity, specificity, precision, or F1 metrics.
 
-### 7. Evaluate against human screening
+### 8. Extract and hand off
 
-Use `scripts/eval.ipynb` when a human screening export is available. It uses fuzzy title matching to align AI and human records, then reports sensitivity/specificity-style metrics and mismatch files.
+Run structured extraction on a bounded test sample before the full eligible set. Each record uses its uploaded PDF when present; otherwise the output is marked as an abstract fallback. Validate every extracted field and effect estimate against the source before analysis or publication.
 
-Before running it, update any historical absolute paths to local relative paths under `scripts/outputs/` or another project-specific output directory.
+The publication bundle excludes credentials, embeddings, and uploaded copyrighted PDFs.
 
-## Manual steps and review controls
+## Background tasks
 
-This workflow requires explicit human decisions at several points:
+PubMed fetching, embedding generation, title/abstract screening, full-text screening, and extraction run in a serial background worker. The **Tasks** view records queued, running, succeeded, failed, and interrupted states with progress and links back to the relevant workflow step.
 
-- Confirm the PubMed query and date/search scope.
-- Verify API keys and rate-limit behavior before large runs.
-- Inspect sample AI screening and extraction outputs before full runs.
-- Choose clustering parameters and interpret clusters manually.
-- Review all uncertain or low-confidence AI decisions.
-- Validate AI screening/extraction against human judgments where available.
+Task state is persisted within the project directory. Submitted API keys remain in process memory and are never written to task files. After an interruption, resumable CSV-based steps can safely continue completed records.
 
-## Generated files
+## Scientific and privacy safeguards
 
-Typical generated files include:
+- Validate model and prompt behavior on a human-reviewed sample before a full run.
+- Manually resolve uncertain, low-confidence, and AI/human disagreement records.
+- Treat “AI accepted” as an audit status, not a human judgment.
+- Verify PDF-assisted and abstract-fallback extraction against source documents.
+- Record the search, criteria, model names, run date, prompt/schema changes, and application commit hash.
+- Review fuzzy title matches and unmatched records before reporting evaluation metrics.
+- Full-text uploads must be PDFs no larger than 50 MB. They remain within the owning project's runtime directory, are removed with the project, and are omitted from publication bundles.
+- Never commit `.env`, `secret_keys.py`, runtime projects, generated outputs, or API credentials.
 
-- `pubmed_ids.json`
-- `pubmed_fetch.log`, `extract_pubmed.log`, `ai_screening.log`, `ai_extraction.log`, `clustering.log`
-- `pubmed_results_complete.csv`
-- `pubmed_results_with_embeddings.csv`
-- `csv_results_with_embeddings.csv`
-- `outputs/*.csv`, `outputs/*.html`, `outputs/*.pdf`, and related report files
+## Publication handoff checklist
 
-Do not commit generated outputs unless they are intentionally small fixtures and the user requests them.
+- Confirm the search query, date range, fetched count, and duplicate audit.
+- Freeze the inclusion/exclusion criteria before the final screening run.
+- Validate the model and prompts on a representative human-reviewed sample.
+- Resolve required title/abstract decisions and any full-text AI/human disagreements.
+- Record a broad category and specific rationale for every human full-text exclusion.
+- Evaluate against workflow human decisions or an independent included-records CSV and inspect fuzzy-match coverage.
+- Confirm each extraction identifies its source as PDF or abstract fallback and manually verify the result.
+- Download the publication bundle and retain the application commit hash with the review record.
+
+## Notebook workflow
+
+The original notebooks live under `scripts/` and are intended to be run manually in order:
+
+1. `search_pubmed.ipynb` — fetch PubMed records using `search_strategy.txt`.
+2. `extract_pubmed.ipynb` or `extract_csv.ipynb` — generate embeddings.
+3. `deduplicate.ipynb` — deduplicate a prepared record source where needed.
+4. `clustering.ipynb` — explore t-SNE/K-Means projections and cluster subsets.
+5. `ai_screening.ipynb` — run structured title/abstract screening; see `scripts/AI_SCREENING_GUIDE.md`.
+6. `ai_extraction.ipynb` — extract structured evidence from retained records.
+7. `eval.ipynb` — compare AI output with a human reference using fuzzy title matching.
+
+Some historical exploratory notebook cells may contain legacy paths or SDK patterns. When editing a notebook, prefer repository-relative paths and the modern `OpenAI` client and structured-output APIs.
+
+## Repository layout
+
+| Path | Purpose |
+| --- | --- |
+| `ml_review_app/` | Flask blueprints, services, templates, and static assets. |
+| `scripts/` | Notebook workflow, search/criteria inputs, and helper scripts. |
+| `tests/` | Service and end-to-end Flask workflow tests. |
+| `runtime/` | Gitignored project state and generated application artifacts. |
+| `environment.yml` | Conda notebook environment. |
+| `requirements_.txt` | Notebook and local-development Python dependencies. |
+| `requirements_app.lock` | Exact Docker application dependency set. |
+| `compose.yaml` | Supported localhost application profile. |
+| `THIRD_PARTY_NOTICES.md` | Required notices for bundled third-party components. |
 
 ## Troubleshooting
 
-- **Missing `secret_keys.py`:** Create the local file with `OPENAI_API_KEY` and/or `PUBMED_API_KEY`.
-- **PubMed throttling or incomplete results:** Increase sleep/backoff settings and use smaller date windows.
-- **OpenAI cost concerns:** Test on a small batch first, use lower-cost models for development, and rely on resume/progress files to avoid duplicate calls.
-- **Notebook path errors:** Run notebooks from the expected working directory or convert hard-coded paths to relative paths.
-- **Plotly image export errors:** HTML export usually works with Plotly alone; PDF/static image export may require Kaleido and additional system/browser dependencies.
-- **CSV schema errors:** Check that required columns such as `PMID`, `Title`, and `Abstract` are present before downstream embedding, screening, or extraction.
+- **Application will not start:** confirm `.env` contains a non-default `ML_REVIEW_SECRET_KEY`.
+- **`localhost` does not resolve as expected:** open <http://127.0.0.1:5055> and confirm no proxy or hosts-file rule overrides localhost.
+- **PubMed throttling:** use an NCBI API key, smaller result/date windows, and the resumable fetch path.
+- **OpenAI cost concerns:** start with test samples and retain resume mode to avoid duplicate calls.
+- **CSV errors:** verify the file has a header and maps `RecordID` plus at least one of `Title` or `Abstract`.
+- **Notebook path errors:** run from the repository root or convert historical absolute paths to repository-relative paths.
+- **Static Plotly export errors:** HTML output works without Kaleido; PDF or image export can require additional browser/system packages.
 
-## Reproducibility notes
+## Licensing
 
-For each full review run, record:
-
-- Search query and date run.
-- Inclusion/exclusion criteria.
-- Notebook versions or commit hash.
-- OpenAI model names and reasoning/temperature settings.
-- Manual screening or extraction validation process.
-- Any prompt or schema changes made during calibration.
-
-## Detailed code and notebook behavior
-
-### `scripts/search_pubmed.ipynb`
-
-This notebook is the ingestion step. It imports `requests`, `pandas`, XML parsing utilities, logging, and `PUBMED_API_KEY` from `secret_keys.py`. Its main behavior is split across helper functions that:
-
-- load already-processed PMIDs from an existing result CSV;
-- count PubMed records for a query/date range;
-- retrieve new PMIDs for a query/date range;
-- fetch article details in batches of up to 200 IDs;
-- parse PubMed XML into tabular article metadata;
-- append records incrementally to `pubmed_results_complete.csv`; and
-- recursively split date ranges by year, month, or day when a search window is too large.
-
-The important human decisions are the PubMed query, the overall date range, whether the NCBI key is available, how aggressively to split/date-limit searches, and whether to resume from or delete existing `pubmed_ids.json` / CSV outputs before rerunning.
-
-### `scripts/extract_pubmed.ipynb` and `scripts/extract_csv.ipynb`
-
-These notebooks are embedding steps. They use the OpenAI API key, batch input rows, call the embeddings API with `text-embedding-3-small`, serialize each embedding as JSON, and append results to an output CSV. `extract_pubmed.ipynb` expects `pubmed_results_complete.csv`; `extract_csv.ipynb` supports an existing CSV source and writes `csv_results_with_embeddings.csv`.
-
-The main human decisions are which source CSV to embed, which text column should represent the article content, the embedding batch size, whether to resume from an existing output file, and whether API cost/rate limits are acceptable before running the full file.
-
-### `scripts/clustering.ipynb`
-
-This is an exploratory analysis notebook rather than a deterministic screening step. It reads `csv_results_with_embeddings.csv`, converts serialized embeddings to arrays, standardizes them, reduces them to two dimensions with t-SNE, clusters the projection with K-Means, and writes interactive/static outputs under `outputs/`. Later cells repeatedly subset the data by selected clusters or title search terms, rerun t-SNE/K-Means on those subsets, and save more focused cluster outputs.
-
-The main human decisions are the clustering target, search terms used to inspect clusters, which clusters to keep or discard, t-SNE settings, K-Means cluster counts, and how to interpret exploratory plots. Cluster assignments should be treated as navigation aids for reviewers, not evidence or final inclusion/exclusion labels.
-
-### `scripts/ai_screening.ipynb`
-
-This is the AI-assisted title/abstract screening notebook. It defines a Pydantic `ScreeningDecision` schema and functions to load criteria, load PubMed data, call OpenAI structured outputs, batch-screen records with progress saving, merge screening results with embeddings, analyze decisions, generate visualizations, create a PDF report, and produce PRISMA-style data. The notebook uses GPT-style reasoning settings, defaults to `gpt-5` in its runnable examples, and saves test/full outputs under `outputs/`.
-
-The main human decisions are the exact inclusion criteria, model choice, reasoning effort, whether to run only a test sample or the full screen, batch size, rate-limit delay, confidence thresholds for manual review, and how to handle `uncertain` decisions. The intended workflow is to test a small sample, inspect errors, refine criteria/prompts, run the full screen, and then manually review uncertain or low-confidence records.
-
-### `scripts/ai_extraction.ipynb`
-
-This notebook performs structured data extraction after screening. It defines Pydantic models for geographic locations, exposure metrics, outcome measures, effect estimates, and the full `DataExtraction` payload. It loads included records from `outputs/ai_screening_full_results.csv`, optionally includes uncertain records, calls OpenAI structured outputs, saves incremental extraction results, analyzes extraction completeness/confidence, and exports derived tables such as study characteristics and effect estimates.
-
-The main human decisions are whether to extract from abstracts or add full text, whether to include `uncertain` screened records, which model and reasoning effort to use, the batch size/rate-limit delay, how to validate a sample extraction against manual abstraction, and which exported tables are appropriate for analysis or manuscript preparation.
-
-### `scripts/deduplicate.ipynb`
-
-This helper notebook/script removes duplicate studies by normalized title. It is aimed at outputs such as clustered subsets and keeps a single representative row for each normalized title.
-
-The main human decisions are which file should be deduplicated, whether title-only deduplication is adequate, and whether potential duplicates need manual inspection before deletion.
-
-### `scripts/eval.ipynb`
-
-This notebook evaluates AI screening against a human-screening export. It loads an AI output CSV and a gold/human CSV, normalizes titles, fuzzy-matches records, calculates agreement-style metrics, and writes reports listing matched records and mismatches. It currently contains historical absolute local paths that should be changed before reuse.
-
-The main human decisions are which human file is the reference standard, what fuzzy-match threshold is acceptable, whether ambiguous matches need manual correction, and how to interpret sensitivity/specificity results in light of title-matching errors.
-
-## Human-in-the-loop decisions by stage
-
-| Stage | Human decision | Why it matters |
-| --- | --- | --- |
-| Search | PubMed query, date range, and whether to use/reset cached PMIDs | Defines the universe of candidate studies and affects reproducibility. |
-| Fetch | Retry/backoff behavior and whether results are complete enough | PubMed throttling or large result sets can silently shape coverage. |
-| Embedding | Source CSV, text field, batch size, and model | Determines downstream similarity/clustering quality and API cost. |
-| Clustering | t-SNE parameters, K-Means cluster count, title search terms, and selected subsets | Clustering is exploratory and requires reviewer interpretation. |
-| Screening | Inclusion criteria, model, reasoning effort, test-vs-full run, and confidence handling | These settings directly affect include/exclude/uncertain labels. |
-| Manual review | Which AI decisions to audit or override | Required because AI screening is decision support, not the final review decision. |
-| Extraction | Abstract vs full-text source, extraction schema, included-vs-uncertain scope, and validation sample | Determines data quality for evidence synthesis. |
-| Evaluation | Human reference file and fuzzy-match threshold | Controls the validity of sensitivity/specificity-style metrics. |
-| Reporting | Which outputs are appropriate to publish or cite | Prevents overclaiming exploratory/AI-generated artifacts. |
-
-## Current implementation caveats
-
-- The project is notebook-first, so execution order and working directory assumptions matter.
-- Several notebooks have one large code cell or manual exploratory cells rather than reusable modules.
-- Some historical absolute paths remain in exploratory/evaluation notebooks and should be replaced before reuse.
-- API-running notebooks can cost money and should start with small test batches.
-- Generated files are not committed by default, so downstream notebooks expect local outputs from prior stages.
-- Some Plotly static exports may need additional dependencies such as Kaleido; HTML exports are generally less fragile.
+See `THIRD_PARTY_NOTICES.md` for third-party software notices. The locally vendored Lucide icon subset retains its ISC license under `ml_review_app/static/icons/LICENSE`.
